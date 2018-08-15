@@ -42,10 +42,17 @@ var modelStructsMap = newModelStructsMap()
 
 // ModelStruct model definition
 type ModelStruct struct {
-	PrimaryFields    []*StructField
-	StructFields     []*StructField
-	ModelType        reflect.Type
-	defaultTableName string
+	PrimaryFields         []*StructField
+	StructFields          []*StructField
+	ModelType             reflect.Type
+	defaultTableName      string
+	StructFieldsByName    map[string]*StructField
+	IgnoredFieldsCount    int
+	BeforeRelatedCallbacks []func(fromScope *Scope, toScope *Scope, db *DB, fromField *Field) *DB
+}
+
+func (s *ModelStruct) BeforeRelatedCallback(cb ...func(fromScope *Scope, toScope *Scope, db *DB, fromField *Field) *DB) {
+	s.BeforeRelatedCallbacks = append(s.BeforeRelatedCallbacks, cb...)
 }
 
 // TableName get model's table name
@@ -64,6 +71,42 @@ func (s *ModelStruct) TableName(db *DB) string {
 	}
 
 	return DefaultTableNameHandler(db, s.defaultTableName)
+}
+
+// GetNonIgnoredStructFields get non ignored model's field structs
+func (s *ModelStruct) NonIgnoredStructFields() []*StructField {
+	fields := make([]*StructField, len(s.StructFields)-s.IgnoredFieldsCount)
+	var i int
+	for _, field := range s.StructFields {
+		if !field.IsIgnored {
+			fields[i] = field
+			i++
+		}
+	}
+	return fields
+}
+
+// NonRelatedStructFields get non ignored model's field structs
+func (s *ModelStruct) NonRelatedStructFields() []*StructField {
+	fields := make([]*StructField, len(s.StructFields)-s.IgnoredFieldsCount)
+	var i int
+	for _, field := range s.StructFields {
+		if !field.IsIgnored && field.Relationship == nil {
+			fields[i] = field
+			i++
+		}
+	}
+	return fields
+}
+
+// GetNonIgnoredStructFields get non ignored model's field structs
+func (s *ModelStruct) NormalStructFields() (fields []*StructField) {
+	for _, field := range s.StructFields {
+		if !field.IsIgnored && !field.IsForeignKey {
+			fields = append(fields, field)
+		}
+	}
+	return fields
 }
 
 type StructFieldMethodCallback struct {
@@ -91,6 +134,8 @@ type StructField struct {
 	IsForeignKey    bool
 	Relationship    *Relationship
 	MethodCallbacks map[string]StructFieldMethodCallback
+	StructIndex     []int
+	Index           int
 }
 
 // Call the method callback if exists by name.
@@ -118,6 +163,7 @@ func (structField *StructField) clone() *StructField {
 		Tag:             structField.Tag,
 		TagSettings:     map[string]string{},
 		Struct:          structField.Struct,
+		StructIndex:     structField.StructIndex[:],
 		IsForeignKey:    structField.IsForeignKey,
 		MethodCallbacks: structField.MethodCallbacks,
 	}
@@ -165,6 +211,7 @@ func (scope *Scope) GetModelStruct() *ModelStruct {
 	}
 
 	reflectType := reflect.ValueOf(scope.Value).Type()
+
 	for reflectType.Kind() == reflect.Slice || reflectType.Kind() == reflect.Ptr {
 		reflectType = reflectType.Elem()
 	}
@@ -190,6 +237,7 @@ func (scope *Scope) GetModelStruct() *ModelStruct {
 				Names:       []string{fieldStruct.Name},
 				Tag:         fieldStruct.Tag,
 				TagSettings: parseTagSetting(fieldStruct.Tag),
+				StructIndex: fieldStruct.Index,
 			}
 
 			// is ignored field
@@ -253,6 +301,10 @@ func (scope *Scope) GetModelStruct() *ModelStruct {
 								newJoinTableHandler.Setup(subField.Relationship, joinTableHandler.TableName, reflectType, joinTableHandler.Destination.ModelType)
 								subField.Relationship.JoinTableHandler = newJoinTableHandler
 							}
+						}
+
+						if fieldStruct.Anonymous {
+							subField.StructIndex = append(fieldStruct.Index, subField.StructIndex...)
 						}
 
 						modelStruct.StructFields = append(modelStruct.StructFields, subField)
@@ -633,6 +685,16 @@ func (scope *Scope) GetModelStruct() *ModelStruct {
 		}
 	}
 
+	modelStruct.StructFieldsByName = make(map[string]*StructField)
+
+	for i, field := range modelStruct.StructFields {
+		field.Index = i
+		modelStruct.StructFieldsByName[field.Name] = field
+		if field.IsIgnored {
+			modelStruct.IgnoredFieldsCount++
+		}
+	}
+
 	modelStructsMap.Set(reflectType, &modelStruct)
 
 	return &modelStruct
@@ -641,6 +703,16 @@ func (scope *Scope) GetModelStruct() *ModelStruct {
 // GetStructFields get model's field structs
 func (scope *Scope) GetStructFields() (fields []*StructField) {
 	return scope.GetModelStruct().StructFields
+}
+
+// GetNonIgnoredStructFields get non ignored model's field structs
+func (scope *Scope) GetNonIgnoredStructFields() []*StructField {
+	return scope.GetModelStruct().NonIgnoredStructFields()
+}
+
+// GetNonIgnoredStructFields get non ignored model's field structs
+func (scope *Scope) GetNonRelatedStructFields() []*StructField {
+	return scope.GetModelStruct().NonRelatedStructFields()
 }
 
 func parseTagSetting(tags reflect.StructTag) map[string]string {

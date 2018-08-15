@@ -22,6 +22,7 @@ type DB struct {
 	logger            logger
 	search            *search
 	values            map[string]interface{}
+	path              []interface{}
 
 	// global db
 	parent        *DB
@@ -80,6 +81,16 @@ func Open(dialect string, args ...interface{}) (db *DB, err error) {
 			d.Close()
 		}
 	}
+	return
+}
+
+// FakeDB create a new fake db with dialect
+func FakeDB(dialect string) (db *DB) {
+	db = &DB{
+		values:  map[string]interface{}{},
+		dialect: newDialect(dialect, nil),
+	}
+	db.parent = db
 	return
 }
 
@@ -216,6 +227,30 @@ func (s *DB) Select(query interface{}, args ...interface{}) *DB {
 	return s.clone().search.Select(query, args...).db
 }
 
+// ExtraSelect specify extra fields that you want to retrieve from database when querying
+func (s *DB) ExtraSelect(key string, values []interface{}, query interface{}, args ...interface{}) *DB {
+	return s.clone().search.ExtraSelect(key, values, query, args...).db
+}
+
+// ExtraSelectFields specify extra fields that you want to retrieve from database when querying
+func (s *DB) ExtraSelectFields(key string, value interface{}, names []string, callback func(scope *Scope, record interface{}), query interface{}, args ...interface{}) *DB {
+	modelStruct := s.NewScope(value).GetModelStruct()
+	fields := make([]*StructField, len(names))
+	for i, name := range names {
+		if f, ok := modelStruct.StructFieldsByName[name]; ok {
+			fields[i] = f
+		} else {
+			panic(s.AddError(fmt.Errorf("Invalid field %q", name)))
+		}
+	}
+	return s.clone().search.ExtraSelectFields(key, value, fields, callback, query, args...).db
+}
+
+// ExtraSelectFields specify extra fields that you want to retrieve from database when querying
+func (s *DB) ExtraSelectFieldsSetter(key string, setter ExtraSelectFieldsSetter, structFields []*StructField, query interface{}, args ...interface{}) *DB {
+	return s.clone().search.ExtraSelectFields(key, setter, structFields, nil, query, args...).db
+}
+
 // Omit specify fields that you want to ignore when saving to database for creating, updating
 func (s *DB) Omit(columns ...string) *DB {
 	return s.clone().search.Omit(columns...).db
@@ -324,7 +359,7 @@ func (s *DB) ScanRows(rows *sql.Rows, result interface{}) error {
 	)
 
 	if clone.AddError(err) == nil {
-		scope.scan(rows, columns, scope.Fields())
+		scope.scan(rows, columns, scope.Fields(), result)
 	}
 
 	return clone.Error
@@ -654,6 +689,28 @@ func (s *DB) Preload(column string, conditions ...interface{}) *DB {
 	return s.clone().search.Preload(column, conditions...).db
 }
 
+// Preload preload associations with given conditions
+//    db.Preload("Orders", "state NOT IN (?)", "cancelled").Find(&users)
+func (s *DB) InlinePreload(column string, conditions ...interface{}) *DB {
+	return s.clone().search.InlinePreload(column, conditions...).db
+}
+
+// AutoInlinePreload preload associations
+func (s *DB) AutoInlinePreload(value interface{}) *DB {
+	if ipf, ok := value.(InlinePreloadFields); ok {
+		modelStruct := s.NewScope(value).GetModelStruct()
+		s = s.clone()
+		for _, fieldName := range ipf.GetGormInlinePreloadFields() {
+			if f, ok := modelStruct.StructFieldsByName[fieldName]; ok {
+				if f.Relationship != nil {
+					s.search.InlinePreload(f.Name)
+				}
+			}
+		}
+	}
+	return s
+}
+
 // Set set setting by name, which could be used in callbacks, will clone a new db, and update its setting
 func (s *DB) Set(name string, value interface{}) *DB {
 	return s.clone().InstantSet(name, value)
@@ -693,6 +750,10 @@ func (s *DB) SetJoinTableHandler(source interface{}, column string, handler Join
 func (s *DB) AddError(err error) error {
 	if err != nil {
 		if err != ErrRecordNotFound {
+			if len(s.path) > 0 {
+				err = fmt.Errorf("DB{%v}: %v", s.PathString(), err)
+			}
+
 			if s.logMode == 0 {
 				go s.print(fileWithLineNum(), err)
 			} else {
@@ -735,6 +796,7 @@ func (s *DB) clone() *DB {
 		Value:             s.Value,
 		Error:             s.Error,
 		blockGlobalUpdate: s.blockGlobalUpdate,
+		path:              s.path,
 	}
 
 	for key, value := range s.values {
@@ -768,7 +830,7 @@ func (s *DB) slog(sql string, t time.Time, vars ...interface{}) {
 }
 
 // Disable after scan callback. If typs not is empty, disable for typs, other else, disable for all
-func (s *DB) DisableAfterScanCallback(typs ...interface{}) *DB  {
+func (s *DB) DisableAfterScanCallback(typs ...interface{}) *DB {
 	key := "gorm:disable_after_scan"
 
 	s = s.clone()
@@ -780,7 +842,7 @@ func (s *DB) DisableAfterScanCallback(typs ...interface{}) *DB  {
 
 	for _, typ := range typs {
 		rType := indirectType(reflect.TypeOf(typ))
-		s.values[key + ":" + rType.PkgPath() + "." + rType.Name()] = true
+		s.values[key+":"+rType.PkgPath()+"."+rType.Name()] = true
 	}
 
 	return s
@@ -788,7 +850,7 @@ func (s *DB) DisableAfterScanCallback(typs ...interface{}) *DB  {
 
 // Enable after scan callback. If typs not is empty, enable for typs, other else, enable for all.
 // The disabled types will not be enabled unless they are specifically informed.
-func (s *DB) EnableAfterScanCallback(typs ...interface{}) *DB  {
+func (s *DB) EnableAfterScanCallback(typs ...interface{}) *DB {
 	key := "gorm:disable_after_scan"
 
 	s = s.clone()
@@ -800,7 +862,7 @@ func (s *DB) EnableAfterScanCallback(typs ...interface{}) *DB  {
 
 	for _, typ := range typs {
 		rType := indirectType(reflect.TypeOf(typ))
-		s.values[key + ":" + rType.PkgPath() + "." + rType.Name()] = false
+		s.values[key+":"+rType.PkgPath()+"."+rType.Name()] = false
 	}
 
 	return s
@@ -817,11 +879,37 @@ func (s *DB) IsEnabledAfterScanCallback(typs ...interface{}) (ok bool) {
 
 	for _, typ := range typs {
 		rType := indirectType(reflect.TypeOf(typ))
-		v, ok := s.values[key + ":" + rType.PkgPath() + "." + rType.Name()]
+		v, ok := s.values[key+":"+rType.PkgPath()+"."+rType.Name()]
 		if ok && v.(bool) {
 			return false
 		}
 	}
 
 	return true
+}
+
+func (s *DB) Path() []interface{} {
+	return s.path
+}
+
+func (s *DB) PathString() string {
+	ps := make([]string, len(s.path))
+	for i, p := range s.path {
+		if pl, ok := p.(interface{ GetLabel() string }); ok {
+			ps[i] = pl.GetLabel()
+		} else if pl, ok := p.(interface{ GetPrivateLabel() string }); ok {
+			ps[i] = pl.GetPrivateLabel()
+		} else if pl, ok := p.(interface{ GetName() string }); ok {
+			ps[i] = pl.GetName()
+		} else {
+			ps[i] = fmt.Sprint(p)
+		}
+	}
+	return strings.Join(ps, " > ")
+}
+
+func (s *DB) Inside(name ...interface{}) *DB {
+	clone := s.clone()
+	clone.path = append(clone.path, name...)
+	return clone
 }

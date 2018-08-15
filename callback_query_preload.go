@@ -325,7 +325,7 @@ func (scope *Scope) handleManyToManyPreload(field *Field, conditions []interface
 			joinTableFields = append(joinTableFields, &Field{StructField: &StructField{DBName: sourceKey, IsNormal: true}, Field: reflect.New(foreignKeyType).Elem()})
 		}
 
-		scope.scan(rows, columns, append(fields, joinTableFields...))
+		scope.scan(rows, columns, append(fields, joinTableFields...), nil)
 
 		scope.New(elem.Addr().Interface()).
 			InstanceSet("gorm:skip_query_callback", true).

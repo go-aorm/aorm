@@ -23,6 +23,7 @@ type Scope struct {
 	primaryKeyField *Field
 	skipLeft        bool
 	fields          *[]*Field
+	fieldsByName    map[string]*Field
 	selectAttrs     *[]string
 }
 
@@ -109,26 +110,62 @@ func (scope *Scope) Fields() []*Field {
 			fields             []*Field
 			indirectScopeValue = scope.IndirectValue()
 			isStruct           = indirectScopeValue.Kind() == reflect.Struct
+			byName             = make(map[string]*Field)
+			field              *Field
 		)
 
-		for _, structField := range scope.GetModelStruct().StructFields {
-			if isStruct {
-				fieldValue := indirectScopeValue
-				for _, name := range structField.Names {
-					if fieldValue.Kind() == reflect.Ptr && fieldValue.IsNil() {
-						fieldValue.Set(reflect.New(fieldValue.Type().Elem()))
-					}
-					fieldValue = reflect.Indirect(fieldValue).FieldByName(name)
+		if isStruct {
+			for _, structField := range scope.GetModelStruct().StructFields {
+				fieldValue := indirectScopeValue.FieldByIndex(structField.StructIndex)
+				field = &Field{StructField: structField, Field: fieldValue, IsBlank: isBlank(fieldValue)}
+				fields = append(fields, field)
+				if _, ok := byName[field.Name]; !ok {
+					byName[field.Name] = field
 				}
-				fields = append(fields, &Field{StructField: structField, Field: fieldValue, IsBlank: isBlank(fieldValue)})
-			} else {
-				fields = append(fields, &Field{StructField: structField, IsBlank: true})
+			}
+		} else {
+			for _, structField := range scope.GetModelStruct().StructFields {
+				field = &Field{StructField: structField, IsBlank: true}
+
+				fields = append(fields, field)
+				if _, ok := byName[field.Name]; !ok {
+					byName[field.Name] = field
+				}
 			}
 		}
+
+		scope.fieldsByName = byName
 		scope.fields = &fields
 	}
 
 	return *scope.fields
+}
+
+// ValuesFields create value's fields from structFields
+func (scope *Scope) ValuesFields(structFields []*StructField) []*Field {
+	var (
+		fields             = make([]*Field, len(structFields))
+		indirectScopeValue = scope.IndirectValue()
+		isStruct           = indirectScopeValue.Kind() == reflect.Struct
+	)
+
+	if isStruct {
+		for i, structField := range structFields {
+			fieldValue := indirectScopeValue
+			for _, name := range structField.Names {
+				if fieldValue.Kind() == reflect.Ptr && fieldValue.IsNil() {
+					fieldValue.Set(reflect.New(fieldValue.Type().Elem()))
+				}
+				fieldValue = reflect.Indirect(fieldValue).FieldByName(name)
+			}
+			fields[i] = &Field{StructField: structField, Field: fieldValue, IsBlank: isBlank(fieldValue)}
+		}
+	} else {
+		for i, structField := range structFields {
+			fields[i] = &Field{StructField: structField, IsBlank: true}
+		}
+	}
+	return fields
 }
 
 // FieldByName find `gorm.Field` with field name or db name
@@ -138,7 +175,13 @@ func (scope *Scope) FieldByName(name string) (field *Field, ok bool) {
 		mostMatchedField *Field
 	)
 
-	for _, field := range scope.Fields() {
+	fields := scope.Fields()
+
+	if field, ok = scope.fieldsByName[name]; ok {
+		return
+	}
+
+	for _, field := range fields {
 		if field.Name == name || field.DBName == name {
 			return field, true
 		}
@@ -494,18 +537,33 @@ func (scope *Scope) afterScanCallback(scannerFields map[int]*Field, disableScanF
 	}
 }
 
-func (scope *Scope) scan(rows *sql.Rows, columns []string, fields []*Field) {
+func (scope *Scope) scan(rows *sql.Rows, columns []string, fields []*Field, result interface{}) {
 	var (
 		ignored            interface{}
-		values             = make([]interface{}, len(columns))
+		values             []interface{}
 		selectFields       []*Field
 		selectedColumnsMap = map[string]int{}
 		resetFields        = map[int]*Field{}
+		scannerFields      = make(map[int]*Field)
+		extraValues        []interface{}
+		extraFieldsValues  []interface{}
+		extraValuesSize    int
+		extraFieldsSize    int
 	)
 
-	scannerFields := make(map[int]*Field)
+	if scope.Search.extraSelects != nil {
+		extraValuesSize = scope.Search.extraSelects.Size
+		extraValues = scope.Search.extraSelects.NewValues()
+	}
 
-	for index, column := range columns {
+	if scope.Search.extraSelectsFields != nil {
+		extraFieldsSize = scope.Search.extraSelectsFields.Size
+		extraFieldsValues = scope.Search.extraSelectsFields.NewValues()
+	}
+
+	values = make([]interface{}, len(columns)-extraValuesSize-extraFieldsSize)
+
+	for index, column := range columns[0:len(values)] {
 		values[index] = &ignored
 
 		selectFields = fields
@@ -516,16 +574,11 @@ func (scope *Scope) scan(rows *sql.Rows, columns []string, fields []*Field) {
 		for fieldIndex, field := range selectFields {
 			if field.DBName == column {
 				scannerFields[index] = field
-
-				if field.Field.Kind() == reflect.Ptr {
-					values[index] = field.Field.Addr().Interface()
-				} else {
-					reflectValue := reflect.New(reflect.PtrTo(field.Struct.Type))
-					reflectValue.Elem().Set(field.Field.Addr())
-					values[index] = reflectValue.Interface()
+				fs := field.Scaner()
+				values[index] = fs
+				if !fs.IsPtr {
 					resetFields[index] = field
 				}
-
 				selectedColumnsMap[column] = fieldIndex
 
 				if field.IsNormal {
@@ -535,16 +588,37 @@ func (scope *Scope) scan(rows *sql.Rows, columns []string, fields []*Field) {
 		}
 	}
 
-	scope.Err(rows.Scan(values...))
+	scope.Err(rows.Scan(append(append(values, extraValues...), extraFieldsValues...)...))
 
 	disableScanField := make(map[int]bool)
 
-	for index, field := range resetFields {
-		reflectValue := reflect.ValueOf(values[index]).Elem().Elem()
-		if reflectValue.IsValid() {
-			field.Field.Set(reflectValue)
-		} else {
+	for index, _ := range resetFields {
+		if !values[index].(*ValueScanner).IsValid {
 			disableScanField[index] = true
+		}
+	}
+
+	if result != nil {
+		if extraValuesSize > 0 {
+			extraColumns := columns[len(values) : len(values)+extraFieldsSize]
+			extraResult := make(map[string]*ExtraResult)
+			for _, es := range scope.Search.extraSelects.Items {
+				r := &ExtraResult{es, extraValues[:len(es.Values)], extraColumns[:len(es.Values)], make(map[string]int)}
+				for i, name := range r.Names {
+					r.Map[name] = i
+					if !es.Ptrs[i] {
+						r.Values[i] = reflect.Indirect(reflect.ValueOf(r.Values[i])).Interface()
+					}
+				}
+				extraResult[es.key] = r
+				extraValues = extraValues[len(es.Values)-1:]
+			}
+			if sev, ok := result.(ExtraSelectInterface); ok {
+				sev.SetGormExtraScannedValues(extraResult)
+			}
+		}
+		if extraFieldsSize > 0 {
+			scope.Search.extraSelectsFields.SetValues(scope, result, extraFieldsValues)
 		}
 	}
 
@@ -796,14 +870,27 @@ func (scope *Scope) whereSQL() (sql string) {
 	return
 }
 
-func (scope *Scope) selectSQL() string {
+func (scope *Scope) selectSQL() (sql string) {
 	if len(scope.Search.selects) == 0 {
 		if len(scope.Search.joinConditions) > 0 {
-			return fmt.Sprintf("%v.*", scope.QuotedTableName())
+			sql = fmt.Sprintf("%v.*", scope.QuotedTableName())
+		} else {
+			sql = "*"
 		}
-		return "*"
+	} else {
+		sql = scope.buildSelectQuery(scope.Search.selects)
 	}
-	return scope.buildSelectQuery(scope.Search.selects)
+	if scope.Search.extraSelects != nil {
+		for _, es := range scope.Search.extraSelects.Items {
+			sql += ", " + scope.buildSelectQuery(map[string]interface{}{"query": es.Query, "args": es.Args})
+		}
+	}
+	if scope.Search.extraSelectsFields != nil {
+		for _, es := range scope.Search.extraSelectsFields.Items {
+			sql += ", " + scope.buildSelectQuery(map[string]interface{}{"query": es.Query, "args": es.Args})
+		}
+	}
+	return
 }
 
 func (scope *Scope) orderSQL() string {
@@ -1080,11 +1167,23 @@ func (scope *Scope) related(value interface{}, foreignKeys ...string) *Scope {
 	toScope := scope.db.NewScope(value)
 	tx := scope.db.Set("gorm:association:source", scope.Value)
 
+	if onRelated, ok := value.(OnRelated); ok {
+		tx = onRelated.GormOnRelated(scope, toScope, tx)
+	}
+
 	for _, foreignKey := range append(foreignKeys, toScope.typeName()+"Id", scope.typeName()+"Id") {
 		fromField, _ := scope.FieldByName(foreignKey)
 		toField, _ := toScope.FieldByName(foreignKey)
 
 		if fromField != nil {
+			if onRelated, ok := value.(OnRelatedField); ok {
+				tx = onRelated.GormOnRelated(scope, toScope, tx, fromField)
+			}
+
+			for _, cb := range toScope.GetModelStruct().BeforeRelatedCallbacks {
+				tx = cb(scope, toScope, tx, fromField)
+			}
+
 			if relationship := fromField.Relationship; relationship != nil {
 				if relationship.Kind == "many_to_many" {
 					joinTableHandler := relationship.JoinTableHandler
@@ -1092,7 +1191,7 @@ func (scope *Scope) related(value interface{}, foreignKeys ...string) *Scope {
 				} else if relationship.Kind == "belongs_to" {
 					for idx, foreignKey := range relationship.ForeignDBNames {
 						if field, ok := scope.FieldByName(foreignKey); ok {
-							tx = tx.Where(fmt.Sprintf("%v = ?", scope.Quote(relationship.AssociationForeignDBNames[idx])), field.Field.Interface())
+							tx = tx.Where(fmt.Sprintf("%v.%v = ?", toScope.QuotedTableName(), scope.Quote(relationship.AssociationForeignDBNames[idx])), field.Field.Interface())
 						}
 					}
 					scope.Err(tx.Find(value).Error)
@@ -1369,10 +1468,10 @@ func (scope *Scope) getColumnAsArray(columns []string, values ...interface{}) (r
 func (scope *Scope) getColumnAsScope(column string) *Scope {
 	indirectScopeValue := scope.IndirectValue()
 
-	switch indirectScopeValue.Kind() {
-	case reflect.Slice:
-		if fieldStruct, ok := scope.GetModelStruct().ModelType.FieldByName(column); ok {
-			fieldType := fieldStruct.Type
+	if fieldStruct, ok := scope.GetModelStruct().StructFieldsByName[column]; ok {
+		switch indirectScopeValue.Kind() {
+		case reflect.Slice:
+			fieldType := fieldStruct.Struct.Type
 			if fieldType.Kind() == reflect.Slice || fieldType.Kind() == reflect.Ptr {
 				fieldType = fieldType.Elem()
 			}
@@ -1396,10 +1495,10 @@ func (scope *Scope) getColumnAsScope(column string) *Scope {
 				}
 			}
 			return scope.New(results.Interface())
-		}
-	case reflect.Struct:
-		if field := indirectScopeValue.FieldByName(column); field.CanAddr() {
-			return scope.New(field.Addr().Interface())
+		case reflect.Struct:
+			if field := indirectScopeValue.FieldByIndex(fieldStruct.StructIndex); field.CanAddr() {
+				return scope.New(field.Addr().Interface())
+			}
 		}
 	}
 	return nil

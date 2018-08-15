@@ -12,6 +12,7 @@ type Field struct {
 	*StructField
 	IsBlank bool
 	Field   reflect.Value
+	scaner  *ValueScanner
 }
 
 func (field *Field) CallMethodCallbackArgs(name string, object reflect.Value, in []reflect.Value) {
@@ -21,6 +22,13 @@ func (field *Field) CallMethodCallbackArgs(name string, object reflect.Value, in
 // Call the method callback
 func (field *Field) CallMethodCallback(name string, object reflect.Value, in ...reflect.Value) {
 	field.CallMethodCallbackArgs(name, object, in)
+}
+
+func (field *Field) Scaner() *ValueScanner {
+	if field.scaner == nil {
+		field.scaner = NewFieldScanner(field)
+	}
+	return field.scaner
 }
 
 // Set set a value to the field

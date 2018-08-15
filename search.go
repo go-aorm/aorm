@@ -5,25 +5,28 @@ import (
 )
 
 type search struct {
-	db               *DB
-	whereConditions  []map[string]interface{}
-	orConditions     []map[string]interface{}
-	notConditions    []map[string]interface{}
-	havingConditions []map[string]interface{}
-	joinConditions   []map[string]interface{}
-	initAttrs        []interface{}
-	assignAttrs      []interface{}
-	selects          map[string]interface{}
-	omits            []string
-	orders           []interface{}
-	preload          []searchPreload
-	offset           interface{}
-	limit            interface{}
-	group            string
-	tableName        string
-	raw              bool
-	Unscoped         bool
-	ignoreOrderQuery bool
+	db                 *DB
+	whereConditions    []map[string]interface{}
+	orConditions       []map[string]interface{}
+	notConditions      []map[string]interface{}
+	havingConditions   []map[string]interface{}
+	joinConditions     []map[string]interface{}
+	initAttrs          []interface{}
+	assignAttrs        []interface{}
+	selects            map[string]interface{}
+	omits              []string
+	orders             []interface{}
+	preload            []searchPreload
+	inlinePreload      []searchPreload
+	offset             interface{}
+	limit              interface{}
+	group              string
+	tableName          string
+	raw                bool
+	Unscoped           bool
+	ignoreOrderQuery   bool
+	extraSelects       *extraSelects
+	extraSelectsFields *extraSelectsFields
 }
 
 type searchPreload struct {
@@ -77,6 +80,26 @@ func (s *search) Select(query interface{}, args ...interface{}) *search {
 	return s
 }
 
+func (s *search) ExtraSelect(key string, values []interface{}, query interface{}, args ...interface{}) *search {
+	if s.extraSelects == nil {
+		s.extraSelects = &extraSelects{}
+	}
+	s.extraSelects.Add(key, values, query, args)
+	return s
+}
+func (s *search) ExtraSelectFields(key string, value interface{}, fields []*StructField, callback func(scope *Scope, record interface{}), query interface{}, args ...interface{}) *search {
+	if s.extraSelectsFields == nil {
+		s.extraSelectsFields = &extraSelectsFields{}
+	}
+	s.extraSelectsFields.Add(key, value, fields, callback, query, args)
+	return s
+}
+
+// ExtraSelectFields specify extra fields that you want to retrieve from database when querying
+func (s *search) ExtraSelectFieldsSetter(key string, setter ExtraSelectFieldsSetter, structFields []*StructField, query interface{}, args ...interface{}) *DB {
+	return s.ExtraSelectFields(key, setter, structFields, nil, query, args...).db
+}
+
 func (s *search) Omit(columns ...string) *search {
 	s.omits = columns
 	return s
@@ -120,6 +143,18 @@ func (s *search) Preload(schema string, values ...interface{}) *search {
 	}
 	preloads = append(preloads, searchPreload{schema, values})
 	s.preload = preloads
+	return s
+}
+
+func (s *search) InlinePreload(schema string, values ...interface{}) *search {
+	var preloads []searchPreload
+	for _, preload := range s.inlinePreload {
+		if preload.schema != schema {
+			preloads = append(preloads, preload)
+		}
+	}
+	preloads = append(preloads, searchPreload{schema, values})
+	s.inlinePreload = preloads
 	return s
 }
 

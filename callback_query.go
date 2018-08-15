@@ -8,6 +8,7 @@ import (
 
 // Define callbacks for querying
 func init() {
+	DefaultCallback.Query().Register("gorm:inline_preload", inlinePreloadCallback)
 	DefaultCallback.Query().Register("gorm:query", queryCallback)
 	DefaultCallback.Query().Register("gorm:preload", preloadCallback)
 	DefaultCallback.Query().Register("gorm:after_query", afterQueryCallback)
@@ -71,7 +72,28 @@ func queryCallback(scope *Scope) {
 					elem = reflect.New(resultType).Elem()
 				}
 
-				scope.scan(rows, columns, scope.New(elem.Addr().Interface()).Fields())
+				result := scope.New(elem.Addr().Interface())
+				scope.scan(rows, columns, result.Fields(), elem.Addr().Interface())
+
+				if !scope.HasError() {
+					if acv, ok := elem.Interface().(interface {
+						AfterScan(*Scope)
+					}); ok {
+						acv.AfterScan(scope)
+					} else if acv, ok := elem.Interface().(interface {
+						AfterScan(*DB)
+					}); ok {
+						acv.AfterScan(scope.DB())
+					} else if acv, ok := elem.Addr().Interface().(interface {
+						AfterScan(*Scope)
+					}); ok {
+						acv.AfterScan(scope)
+					} else if acv, ok := elem.Addr().Interface().(interface {
+						AfterScan(*DB)
+					}); ok {
+						acv.AfterScan(scope.DB())
+					}
+				}
 
 				if isSlice {
 					if isPtr {
