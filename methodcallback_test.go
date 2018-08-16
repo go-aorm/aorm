@@ -43,9 +43,9 @@ package main
 
 import (
 	"reflect"
-	"github.com/jinzhu/gorm"
+	"github.com/moisespsena-go/aorm"
 	"database/sql/driver"
-	_ "github.com/jinzhu/gorm/dialects/sqlite"
+	_ "github.com/moisespsena-go/aorm/dialects/sqlite"
 	"strconv"
 	"strings"
 )
