@@ -815,6 +815,7 @@ func (s *DB) clone() *DB {
 		Error:             s.Error,
 		blockGlobalUpdate: s.blockGlobalUpdate,
 		path:              s.path,
+		dialect:           s.dialect,
 	}
 
 	for key, value := range s.values {
