@@ -1,4 +1,4 @@
-package gorm
+package aorm
 
 type OnRelated interface {
 	GormOnRelated(fromScope, scope *Scope, db *DB) *DB

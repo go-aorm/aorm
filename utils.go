@@ -1,4 +1,4 @@
-package gorm
+package aorm
 
 import (
 	"bytes"

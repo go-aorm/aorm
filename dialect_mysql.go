@@ -1,4 +1,4 @@
-package gorm
+package aorm
 
 import (
 	"crypto/sha1"
