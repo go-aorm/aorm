@@ -28,8 +28,8 @@ func TestToDBNameGenerateFriendlyName(t *testing.T) {
 	}
 
 	for key, value := range maps {
-		if gorm.ToDBName(key) != value {
-			t.Errorf("%v ToDBName should equal %v, but got %v", key, value, gorm.ToDBName(key))
+		if aorm.ToDBName(key) != value {
+			t.Errorf("%v ToDBName should equal %v, but got %v", key, value, aorm.ToDBName(key))
 		}
 	}
 }

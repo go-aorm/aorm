@@ -69,7 +69,7 @@ func (image *Media) Value() (driver.Value, error) {
 	return image.Name, nil
 }
 
-func (image *Media) AfterScan(scope *gorm.Scope, field *gorm.Field) {
+func (image *Media) AfterScan(scope *aorm.Scope, field *aorm.Field) {
 	image.fieldName, image.model = &field.StructField.Name, scope.Value.(interface {
 		GetID() int
 	})
@@ -97,9 +97,9 @@ func (user *User) GetID() int {
 
 func main() {
 	// register media type
-	gorm.StructFieldMethodCallbacks.RegisterFieldType(&Media{})
+	aorm.StructFieldMethodCallbacks.RegisterFieldType(&Media{})
 
-	db, err := gorm.Open("sqlite3", "db.db")
+	db, err := aorm.Open("sqlite3", "db.db")
 	if err != nil {
 		panic(err)
 	}

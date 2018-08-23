@@ -22,7 +22,7 @@ import (
 )
 
 var (
-	DB                 *gorm.DB
+	DB                 *aorm.DB
 	t1, t2, t3, t4, t5 time.Time
 )
 
@@ -36,7 +36,7 @@ func init() {
 	runMigration()
 }
 
-func OpenTestConnection() (db *gorm.DB, err error) {
+func OpenTestConnection() (db *aorm.DB, err error) {
 	dbDSN := os.Getenv("GORM_DSN")
 	switch os.Getenv("GORM_DIALECT") {
 	case "mysql":
@@ -44,13 +44,13 @@ func OpenTestConnection() (db *gorm.DB, err error) {
 		if dbDSN == "" {
 			dbDSN = "gorm:gorm@tcp(localhost:9910)/gorm?charset=utf8&parseTime=True"
 		}
-		db, err = gorm.Open("mysql", dbDSN)
+		db, err = aorm.Open("mysql", dbDSN)
 	case "postgres":
 		fmt.Println("testing postgres...")
 		if dbDSN == "" {
 			dbDSN = "user=gorm password=gorm DB.name=gorm port=9920 sslmode=disable"
 		}
-		db, err = gorm.Open("postgres", dbDSN)
+		db, err = aorm.Open("postgres", dbDSN)
 	case "mssql":
 		// CREATE LOGIN gorm WITH PASSWORD = 'LoremIpsum86';
 		// CREATE DATABASE gorm;
@@ -61,10 +61,10 @@ func OpenTestConnection() (db *gorm.DB, err error) {
 		if dbDSN == "" {
 			dbDSN = "sqlserver://gorm:LoremIpsum86@localhost:9930?database=gorm"
 		}
-		db, err = gorm.Open("mssql", dbDSN)
+		db, err = aorm.Open("mssql", dbDSN)
 	default:
 		fmt.Println("testing sqlite3...")
-		db, err = gorm.Open("sqlite3", filepath.Join(os.TempDir(), "gorm.db"))
+		db, err = aorm.Open("sqlite3", filepath.Join(os.TempDir(), "aorm.db"))
 	}
 
 	// db.SetLogger(Logger{log.New(os.Stdout, "\r\n", 0)})
@@ -85,7 +85,7 @@ func TestOpen_ReturnsError_WithBadArgs(t *testing.T) {
 	testCases := []interface{}{42, time.Now(), &stringRef}
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("%v", tc), func(t *testing.T) {
-			_, err := gorm.Open("postgresql", tc)
+			_, err := aorm.Open("postgresql", tc)
 			if err == nil {
 				t.Error("Should got error with invalid database source")
 			}
@@ -523,7 +523,7 @@ func TestRaw(t *testing.T) {
 	}
 
 	DB.Exec("update users set name=? where name in (?)", "jinzhu", []string{user1.Name, user2.Name, user3.Name})
-	if DB.Where("name in (?)", []string{user1.Name, user2.Name, user3.Name}).First(&User{}).Error != gorm.ErrRecordNotFound {
+	if DB.Where("name in (?)", []string{user1.Name, user2.Name, user3.Name}).First(&User{}).Error != aorm.ErrRecordNotFound {
 		t.Error("Raw sql to update records")
 	}
 }
@@ -818,7 +818,7 @@ func TestSetAndGet(t *testing.T) {
 }
 
 func TestCompatibilityMode(t *testing.T) {
-	DB, _ := gorm.Open("testdb", "")
+	DB, _ := aorm.Open("testdb", "")
 	testdb.SetQueryFunc(func(query string) (driver.Rows, error) {
 		columns := []string{"id", "name", "age"}
 		result := `
@@ -840,13 +840,13 @@ func TestOpenExistingDB(t *testing.T) {
 	DB.Save(&User{Name: "jnfeinstein"})
 	dialect := os.Getenv("GORM_DIALECT")
 
-	db, err := gorm.Open(dialect, DB.DB())
+	db, err := aorm.Open(dialect, DB.DB())
 	if err != nil {
 		t.Errorf("Should have wrapped the existing DB connection")
 	}
 
 	var user User
-	if db.Where("name = ?", "jnfeinstein").First(&user).Error == gorm.ErrRecordNotFound {
+	if db.Where("name = ?", "jnfeinstein").First(&user).Error == aorm.ErrRecordNotFound {
 		t.Errorf("Should have found existing record")
 	}
 }
@@ -870,7 +870,7 @@ func TestDdlErrors(t *testing.T) {
 }
 
 func TestOpenWithOneParameter(t *testing.T) {
-	db, err := gorm.Open("dialect")
+	db, err := aorm.Open("dialect")
 	if db != nil {
 		t.Error("Open with one parameter returned non nil for db")
 	}

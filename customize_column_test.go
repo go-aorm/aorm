@@ -107,12 +107,12 @@ func TestManyToManyWithCustomizedColumn(t *testing.T) {
 }
 
 type CustomizeUser struct {
-	gorm.Model
+	aorm.Model
 	Email string `sql:"column:email_address"`
 }
 
 type CustomizeInvitation struct {
-	gorm.Model
+	aorm.Model
 	Address string         `sql:"column:invitation"`
 	Person  *CustomizeUser `gorm:"foreignkey:Email;associationforeignkey:invitation"`
 }
@@ -142,7 +142,7 @@ func TestOneToOneWithCustomizedColumn(t *testing.T) {
 }
 
 type PromotionDiscount struct {
-	gorm.Model
+	aorm.Model
 	Name     string
 	Coupons  []*PromotionCoupon `gorm:"ForeignKey:discount_id"`
 	Rule     *PromotionRule     `gorm:"ForeignKey:discount_id"`
@@ -150,21 +150,21 @@ type PromotionDiscount struct {
 }
 
 type PromotionBenefit struct {
-	gorm.Model
+	aorm.Model
 	Name        string
 	PromotionID uint
 	Discount    PromotionDiscount `gorm:"ForeignKey:promotion_id"`
 }
 
 type PromotionCoupon struct {
-	gorm.Model
+	aorm.Model
 	Code       string
 	DiscountID uint
 	Discount   PromotionDiscount
 }
 
 type PromotionRule struct {
-	gorm.Model
+	aorm.Model
 	Name       string
 	Begin      *time.Time
 	End        *time.Time
@@ -281,7 +281,7 @@ func TestBelongsToWithPartialCustomizedColumn(t *testing.T) {
 }
 
 type SelfReferencingUser struct {
-	gorm.Model
+	aorm.Model
 	Name    string
 	Friends []*SelfReferencingUser `gorm:"many2many:UserFriends;association_jointable_foreignkey:friend_id"`
 }

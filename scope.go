@@ -168,7 +168,7 @@ func (scope *Scope) ValuesFields(structFields []*StructField) []*Field {
 	return fields
 }
 
-// FieldByName find `gorm.Field` with field name or db name
+// FieldByName find `aorm.Field` with field name or db name
 func (scope *Scope) FieldByName(name string) (field *Field, ok bool) {
 	var (
 		dbName           = ToDBName(name)
@@ -476,7 +476,7 @@ func (scope *Scope) CommitOrRollback() *Scope {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Private Methods For *gorm.Scope
+// Private Methods For *aorm.Scope
 ////////////////////////////////////////////////////////////////////////////////
 
 func (scope *Scope) callMethod(methodName string, reflectValue reflect.Value) {

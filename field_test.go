@@ -7,7 +7,7 @@ import (
 )
 
 type CalculateField struct {
-	gorm.Model
+	aorm.Model
 	Name     string
 	Children []CalculateFieldChild
 	Category CalculateFieldCategory
@@ -19,13 +19,13 @@ type EmbeddedField struct {
 }
 
 type CalculateFieldChild struct {
-	gorm.Model
+	aorm.Model
 	CalculateFieldID uint
 	Name             string
 }
 
 type CalculateFieldCategory struct {
-	gorm.Model
+	aorm.Model
 	CalculateFieldID uint
 	Name             string
 }

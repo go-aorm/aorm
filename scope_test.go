@@ -9,16 +9,16 @@ import (
 	"github.com/moisespsena-go/aorm"
 )
 
-func NameIn1And2(d *gorm.DB) *gorm.DB {
+func NameIn1And2(d *aorm.DB) *aorm.DB {
 	return d.Where("name in (?)", []string{"ScopeUser1", "ScopeUser2"})
 }
 
-func NameIn2And3(d *gorm.DB) *gorm.DB {
+func NameIn2And3(d *aorm.DB) *aorm.DB {
 	return d.Where("name in (?)", []string{"ScopeUser2", "ScopeUser3"})
 }
 
-func NameIn(names []string) func(d *gorm.DB) *gorm.DB {
-	return func(d *gorm.DB) *gorm.DB {
+func NameIn(names []string) func(d *aorm.DB) *aorm.DB {
+	return func(d *aorm.DB) *aorm.DB {
 		return d.Where("name in (?)", names)
 	}
 }
@@ -166,7 +166,7 @@ func TestAfterFieldScanCallbackTypeDisabled(t *testing.T) {
 		}
 	}
 
-	gorm.StructFieldMethodCallbacks.DisableFieldType(&AfterScanFieldPtr{}, &AfterScanField{})
+	aorm.StructFieldMethodCallbacks.DisableFieldType(&AfterScanFieldPtr{}, &AfterScanField{})
 
 	if err := DB.Where("id = ?", model.ID).First(&model).Error; err != nil {
 		t.Errorf("No error should happen when querying WithFieldAfterScanCallback with valuer, but got %v", err)
@@ -176,7 +176,7 @@ func TestAfterFieldScanCallbackTypeDisabled(t *testing.T) {
 	disabled(3, model.Name3)
 	disabled(4, &model.Name4)
 
-	gorm.StructFieldMethodCallbacks.EnableFieldType(&AfterScanFieldPtr{})
+	aorm.StructFieldMethodCallbacks.EnableFieldType(&AfterScanFieldPtr{})
 	if err := DB.Where("id = ?", model.ID).First(&model).Error; err != nil {
 		t.Errorf("No error should happen when querying WithFieldAfterScanCallback with valuer, but got %v", err)
 	}
@@ -185,7 +185,7 @@ func TestAfterFieldScanCallbackTypeDisabled(t *testing.T) {
 	disabled(3, model.Name3)
 	disabled(4, &model.Name4)
 
-	gorm.StructFieldMethodCallbacks.EnableFieldType(&AfterScanField{})
+	aorm.StructFieldMethodCallbacks.EnableFieldType(&AfterScanField{})
 	if err := DB.Where("id = ?", model.ID).First(&model).Error; err != nil {
 		t.Errorf("No error should happen when querying WithFieldAfterScanCallback with valuer, but got %v", err)
 	}

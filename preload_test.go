@@ -162,7 +162,7 @@ func TestNestedPreload1(t *testing.T) {
 		t.Errorf("got %s; want %s", toJSONString(got), toJSONString(want))
 	}
 
-	if err := DB.Preload("Level2").Preload("Level2.Level1").Find(&got, "name = ?", "not_found").Error; err != gorm.ErrRecordNotFound {
+	if err := DB.Preload("Level2").Preload("Level2.Level1").Find(&got, "name = ?", "not_found").Error; err != aorm.ErrRecordNotFound {
 		t.Error(err)
 	}
 }
@@ -1078,7 +1078,7 @@ func TestNestedManyToManyPreload(t *testing.T) {
 		t.Errorf("got %s; want %s", toJSONString(got), toJSONString(want))
 	}
 
-	if err := DB.Preload("Level2s.Level1s").Find(&got, "value = ?", "not_found").Error; err != gorm.ErrRecordNotFound {
+	if err := DB.Preload("Level2s.Level1s").Find(&got, "value = ?", "not_found").Error; err != aorm.ErrRecordNotFound {
 		t.Error(err)
 	}
 }
@@ -1135,7 +1135,7 @@ func TestNestedManyToManyPreload2(t *testing.T) {
 		t.Errorf("got %s; want %s", toJSONString(got), toJSONString(want))
 	}
 
-	if err := DB.Preload("Level2.Level1s").Find(&got, "value = ?", "not_found").Error; err != gorm.ErrRecordNotFound {
+	if err := DB.Preload("Level2.Level1s").Find(&got, "value = ?", "not_found").Error; err != aorm.ErrRecordNotFound {
 		t.Error(err)
 	}
 }
@@ -1204,7 +1204,7 @@ func TestNestedManyToManyPreload3(t *testing.T) {
 	}
 
 	var gots []*Level3
-	if err := DB.Preload("Level2.Level1s", func(db *gorm.DB) *gorm.DB {
+	if err := DB.Preload("Level2.Level1s", func(db *aorm.DB) *aorm.DB {
 		return db.Order("level1.id ASC")
 	}).Find(&gots).Error; err != nil {
 		t.Error(err)
@@ -1279,7 +1279,7 @@ func TestNestedManyToManyPreload3ForStruct(t *testing.T) {
 	}
 
 	var gots []*Level3
-	if err := DB.Preload("Level2.Level1s", func(db *gorm.DB) *gorm.DB {
+	if err := DB.Preload("Level2.Level1s", func(db *aorm.DB) *aorm.DB {
 		return db.Order("level1.id ASC")
 	}).Find(&gots).Error; err != nil {
 		t.Error(err)
@@ -1658,7 +1658,7 @@ func TestPreloadManyToManyCallbacks(t *testing.T) {
 
 	called := 0
 
-	DB.Callback().Query().After("gorm:query").Register("TestPreloadManyToManyCallbacks", func(scope *gorm.Scope) {
+	DB.Callback().Query().After("gorm:query").Register("TestPreloadManyToManyCallbacks", func(scope *aorm.Scope) {
 		called = called + 1
 	})
 

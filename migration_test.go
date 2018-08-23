@@ -15,7 +15,7 @@ import (
 )
 
 func init()  {
-	gorm.StructFieldMethodCallbacks.RegisterFieldType(&AfterScanField{}, &AfterScanFieldPtr{}, &InvalidAfterScanField{})
+	aorm.StructFieldMethodCallbacks.RegisterFieldType(&AfterScanField{}, &AfterScanFieldPtr{}, &InvalidAfterScanField{})
 }
 
 type User struct {
@@ -94,7 +94,7 @@ type Address struct {
 }
 
 type Language struct {
-	gorm.Model
+	aorm.Model
 	Name  string
 	Users []User `gorm:"many2many:user_languages;"`
 }
@@ -211,7 +211,7 @@ type Post struct {
 }
 
 type Category struct {
-	gorm.Model
+	aorm.Model
 	Name string
 
 	Categories []Category
@@ -219,7 +219,7 @@ type Category struct {
 }
 
 type Comment struct {
-	gorm.Model
+	aorm.Model
 	PostId  int64
 	Content string
 	Post    Post
@@ -290,7 +290,7 @@ func (s AfterScanFieldPtr) Value() (driver.Value, error) {
 	return s.data, nil
 }
 
-func (s *AfterScanFieldPtr) AfterScan(scope *gorm.Scope, field *gorm.Field) {
+func (s *AfterScanFieldPtr) AfterScan(scope *aorm.Scope, field *aorm.Field) {
 	s.calledScopeNotIsNill = scope != nil
 	s.calledFieldNotIsNill = field != nil
 }
@@ -321,7 +321,7 @@ func (s AfterScanField) Value() (driver.Value, error) {
 	return s.data, nil
 }
 
-func (s *AfterScanField) AfterScan(scope *gorm.Scope) {
+func (s *AfterScanField) AfterScan(scope *aorm.Scope) {
 	s.calledScopeNotIsNill = scope != nil
 }
 
@@ -609,7 +609,7 @@ func TestModifyColumnType(t *testing.T) {
 	}
 
 	type ModifyColumnType struct {
-		gorm.Model
+		aorm.Model
 		Name1 string `gorm:"length:100"`
 		Name2 string `gorm:"length:200"`
 	}

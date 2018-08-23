@@ -21,14 +21,14 @@ import (
 	_ "github.com/moisespsena-go/aorm/dialects/sqlite"
 )
 
-var db *gorm.DB
+var db *DB
 
 func init() {
 	var err error
-	db, err = gorm.Open("sqlite3", "test.db")
-	// db, err = gorm.Open("postgres", "user=gorm password=gorm DB.name=gorm port=9920 sslmode=disable")
-	// db, err = gorm.Open("mysql", "gorm:gorm@tcp(localhost:9910)/gorm?charset=utf8&parseTime=True")
-	// db, err = gorm.Open("mssql", "sqlserver://gorm:LoremIpsum86@localhost:9930?database=gorm")
+	db, err = Open("sqlite3", "test.db")
+	// db, err = Open("postgres", "user=gorm password=gorm DB.name=gorm port=9920 sslmode=disable")
+	// db, err = Open("mysql", "gorm:gorm@tcp(localhost:9910)/gorm?charset=utf8&parseTime=True")
+	// db, err = Open("mssql", "sqlserver://gorm:LoremIpsum86@localhost:9930?database=gorm")
 	if err != nil {
 		panic(err)
 	}

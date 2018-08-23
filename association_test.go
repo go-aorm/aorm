@@ -182,12 +182,12 @@ func TestBelongsTo(t *testing.T) {
 
 func TestBelongsToOverrideForeignKey1(t *testing.T) {
 	type Profile struct {
-		gorm.Model
+		aorm.Model
 		Name string
 	}
 
 	type User struct {
-		gorm.Model
+		aorm.Model
 		Profile      Profile `gorm:"ForeignKey:ProfileRefer"`
 		ProfileRefer int
 	}
@@ -203,13 +203,13 @@ func TestBelongsToOverrideForeignKey1(t *testing.T) {
 
 func TestBelongsToOverrideForeignKey2(t *testing.T) {
 	type Profile struct {
-		gorm.Model
+		aorm.Model
 		Refer string
 		Name  string
 	}
 
 	type User struct {
-		gorm.Model
+		aorm.Model
 		Profile   Profile `gorm:"ForeignKey:ProfileID;AssociationForeignKey:Refer"`
 		ProfileID int
 	}
@@ -371,13 +371,13 @@ func TestHasOne(t *testing.T) {
 
 func TestHasOneOverrideForeignKey1(t *testing.T) {
 	type Profile struct {
-		gorm.Model
+		aorm.Model
 		Name      string
 		UserRefer uint
 	}
 
 	type User struct {
-		gorm.Model
+		aorm.Model
 		Profile Profile `gorm:"ForeignKey:UserRefer"`
 	}
 
@@ -392,13 +392,13 @@ func TestHasOneOverrideForeignKey1(t *testing.T) {
 
 func TestHasOneOverrideForeignKey2(t *testing.T) {
 	type Profile struct {
-		gorm.Model
+		aorm.Model
 		Name   string
 		UserID uint
 	}
 
 	type User struct {
-		gorm.Model
+		aorm.Model
 		Refer   string
 		Profile Profile `gorm:"ForeignKey:UserID;AssociationForeignKey:Refer"`
 	}
@@ -553,13 +553,13 @@ func TestHasMany(t *testing.T) {
 
 func TestHasManyOverrideForeignKey1(t *testing.T) {
 	type Profile struct {
-		gorm.Model
+		aorm.Model
 		Name      string
 		UserRefer uint
 	}
 
 	type User struct {
-		gorm.Model
+		aorm.Model
 		Profile []Profile `gorm:"ForeignKey:UserRefer"`
 	}
 
@@ -574,13 +574,13 @@ func TestHasManyOverrideForeignKey1(t *testing.T) {
 
 func TestHasManyOverrideForeignKey2(t *testing.T) {
 	type Profile struct {
-		gorm.Model
+		aorm.Model
 		Name   string
 		UserID uint
 	}
 
 	type User struct {
-		gorm.Model
+		aorm.Model
 		Refer   string
 		Profile []Profile `gorm:"ForeignKey:UserID;AssociationForeignKey:Refer"`
 	}
@@ -887,12 +887,12 @@ func TestHasManyChildrenWithOneStruct(t *testing.T) {
 
 func TestAutoSaveBelongsToAssociation(t *testing.T) {
 	type Company struct {
-		gorm.Model
+		aorm.Model
 		Name string
 	}
 
 	type User struct {
-		gorm.Model
+		aorm.Model
 		Name      string
 		CompanyID uint
 		Company   Company `gorm:"association_autoupdate:false;association_autocreate:false;"`
@@ -940,13 +940,13 @@ func TestAutoSaveBelongsToAssociation(t *testing.T) {
 
 func TestAutoSaveHasOneAssociation(t *testing.T) {
 	type Company struct {
-		gorm.Model
+		aorm.Model
 		UserID uint
 		Name   string
 	}
 
 	type User struct {
-		gorm.Model
+		aorm.Model
 		Name    string
 		Company Company `gorm:"association_autoupdate:false;association_autocreate:false;"`
 	}
@@ -996,12 +996,12 @@ func TestAutoSaveHasOneAssociation(t *testing.T) {
 
 func TestAutoSaveMany2ManyAssociation(t *testing.T) {
 	type Company struct {
-		gorm.Model
+		aorm.Model
 		Name string
 	}
 
 	type User struct {
-		gorm.Model
+		aorm.Model
 		Name      string
 		Companies []Company `gorm:"many2many:user_companies;association_autoupdate:false;association_autocreate:false;"`
 	}

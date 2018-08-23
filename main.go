@@ -35,7 +35,7 @@ type DB struct {
 //
 //     import _ "github.com/go-sql-driver/mysql"
 //     func main() {
-//       db, err := gorm.Open("mysql", "user:password@/dbname?charset=utf8&parseTime=True&loc=Local")
+//       db, err := aorm.Open("mysql", "user:password@/dbname?charset=utf8&parseTime=True&loc=Local")
 //     }
 // GORM has wrapped some drivers, for easier to remember driver's import path, so you could import the mysql driver with
 //    import _ "github.com/moisespsena-go/aorm/dialects/mysql"
@@ -230,7 +230,7 @@ func (s *DB) Offset(offset interface{}) *DB {
 // Order specify order when retrieve records from database, set reorder to `true` to overwrite defined conditions
 //     db.Order("name DESC")
 //     db.Order("name DESC", true) // reorder
-//     db.Order(gorm.Expr("name = ? DESC", "first")) // sql expression
+//     db.Order(aorm.Expr("name = ? DESC", "first")) // sql expression
 func (s *DB) Order(value interface{}, reorder ...bool) *DB {
 	return s.clone().search.Order(value, reorder...).db
 }
@@ -287,12 +287,12 @@ func (s *DB) Joins(query string, args ...interface{}) *DB {
 }
 
 // Scopes pass current database connection to arguments `func(*DB) *DB`, which could be used to add conditions dynamically
-//     func AmountGreaterThan1000(db *gorm.DB) *gorm.DB {
+//     func AmountGreaterThan1000(db *aorm.DB) *aorm.DB {
 //         return db.Where("amount > ?", 1000)
 //     }
 //
-//     func OrderStatus(status []string) func (db *gorm.DB) *gorm.DB {
-//         return func (db *gorm.DB) *gorm.DB {
+//     func OrderStatus(status []string) func (db *aorm.DB) *aorm.DB {
+//         return func (db *aorm.DB) *aorm.DB {
 //             return db.Scopes(AmountGreaterThan1000).Where("status in (?)", status)
 //         }
 //     }

@@ -16,14 +16,14 @@ type Person struct {
 }
 
 type PersonAddress struct {
-	gorm.JoinTableHandler
+	aorm.JoinTableHandler
 	PersonID  int
 	AddressID int
 	DeletedAt *time.Time
 	CreatedAt time.Time
 }
 
-func (*PersonAddress) Add(handler gorm.JoinTableHandlerInterface, db *gorm.DB, foreignValue interface{}, associationValue interface{}) error {
+func (*PersonAddress) Add(handler aorm.JoinTableHandlerInterface, db *aorm.DB, foreignValue interface{}, associationValue interface{}) error {
 	foreignPrimaryKey, _ := strconv.Atoi(fmt.Sprint(db.NewScope(foreignValue).PrimaryKeyValue()))
 	associationPrimaryKey, _ := strconv.Atoi(fmt.Sprint(db.NewScope(associationValue).PrimaryKeyValue()))
 	if result := db.Unscoped().Model(&PersonAddress{}).Where(map[string]interface{}{
@@ -32,7 +32,7 @@ func (*PersonAddress) Add(handler gorm.JoinTableHandlerInterface, db *gorm.DB, f
 	}).Update(map[string]interface{}{
 		"person_id":  foreignPrimaryKey,
 		"address_id": associationPrimaryKey,
-		"deleted_at": gorm.Expr("NULL"),
+		"deleted_at": aorm.Expr("NULL"),
 	}).RowsAffected; result == 0 {
 		return db.Create(&PersonAddress{
 			PersonID:  foreignPrimaryKey,
@@ -43,11 +43,11 @@ func (*PersonAddress) Add(handler gorm.JoinTableHandlerInterface, db *gorm.DB, f
 	return nil
 }
 
-func (*PersonAddress) Delete(handler gorm.JoinTableHandlerInterface, db *gorm.DB, sources ...interface{}) error {
+func (*PersonAddress) Delete(handler aorm.JoinTableHandlerInterface, db *aorm.DB, sources ...interface{}) error {
 	return db.Delete(&PersonAddress{}).Error
 }
 
-func (pa *PersonAddress) JoinWith(handler gorm.JoinTableHandlerInterface, db *gorm.DB, source interface{}) *gorm.DB {
+func (pa *PersonAddress) JoinWith(handler aorm.JoinTableHandlerInterface, db *aorm.DB, source interface{}) *aorm.DB {
 	table := pa.Table(db)
 	return db.Joins("INNER JOIN person_addresses ON person_addresses.address_id = addresses.id").Where(fmt.Sprintf("%v.deleted_at IS NULL OR %v.deleted_at <= '0001-01-02'", table, table))
 }

@@ -65,7 +65,7 @@ func TestUpdate(t *testing.T) {
 
 	DB.First(&product4, product4.Id)
 	updatedAt4 := product4.UpdatedAt
-	DB.Model(&product4).Update("price", gorm.Expr("price + ? - ?", 100, 50))
+	DB.Model(&product4).Update("price", aorm.Expr("price + ? - ?", 100, 50))
 	var product5 Product
 	DB.First(&product5, product4.Id)
 	if product5.Price != product4.Price+100-50 {
@@ -154,7 +154,7 @@ func TestUpdates(t *testing.T) {
 	}
 
 	updatedAt4 := product4.UpdatedAt
-	DB.Model(&product4).Updates(map[string]interface{}{"price": gorm.Expr("price + ?", 100)})
+	DB.Model(&product4).Updates(map[string]interface{}{"price": aorm.Expr("price + ?", 100)})
 	var product5 Product
 	DB.First(&product5, product4.Id)
 	if product5.Price != product4.Price+100 {
@@ -189,7 +189,7 @@ func TestUpdateColumn(t *testing.T) {
 		t.Errorf("updatedAt should not be updated with update column")
 	}
 
-	DB.Model(&product4).UpdateColumn("price", gorm.Expr("price + 100 - 50"))
+	DB.Model(&product4).UpdateColumn("price", aorm.Expr("price + 100 - 50"))
 	var product5 Product
 	DB.First(&product5, product4.Id)
 	if product5.Price != product4.Price+100-50 {

@@ -127,7 +127,7 @@ func (registrator *StructFieldMethodCallbacksRegistrator) registerCallback(metho
 	}
 
 	if value.Type().NumIn() < 2 {
-		return fmt.Errorf("The caller function %v for method %q require two args. Example: func(methodInfo *gorm.Method, method interface{}).",
+		return fmt.Errorf("The caller function %v for method %q require two args. Example: func(methodInfo *aorm.Method, method interface{}).",
 			value.Type(), methodName)
 	}
 
