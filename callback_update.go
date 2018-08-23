@@ -14,6 +14,7 @@ func init() {
 	DefaultCallback.Update().Register("gorm:before_update", beforeUpdateCallback)
 	DefaultCallback.Update().Register("gorm:save_before_associations", saveBeforeAssociationsCallback)
 	DefaultCallback.Update().Register("gorm:update_time_stamp", updateTimeStampForUpdateCallback)
+	DefaultCallback.Update().Register("gorm:audited", auditedForUpdateCallback)
 	DefaultCallback.Update().Register("gorm:update", updateCallback)
 	DefaultCallback.Update().Register("gorm:save_after_associations", saveAfterAssociationsCallback)
 	DefaultCallback.Update().Register("gorm:after_update", afterUpdateCallback)
@@ -51,6 +52,15 @@ func beforeUpdateCallback(scope *Scope) {
 func updateTimeStampForUpdateCallback(scope *Scope) {
 	if _, ok := scope.Get("gorm:update_column"); !ok {
 		scope.SetColumn("UpdatedAt", NowFunc())
+	}
+}
+
+// auditedForUpdateCallback will set `UpdatedBy` when updating
+func auditedForUpdateCallback(scope *Scope) {
+	if _, ok := scope.Get("gorm:updated_by_column"); !ok {
+		if user, ok := getCurrentUser(scope); ok {
+			scope.SetColumn("UpdatedBy", user)
+		}
 	}
 }
 

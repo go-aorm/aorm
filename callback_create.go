@@ -2,15 +2,20 @@ package aorm
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
+
+	"gopkg.in/mgo.v2/bson"
 )
 
 // Define callbacks for creating
 func init() {
+	DefaultCallback.Create().Register("gorm:set_key_string", keyStringCallback)
 	DefaultCallback.Create().Register("gorm:begin_transaction", beginTransactionCallback)
 	DefaultCallback.Create().Register("gorm:before_create", beforeCreateCallback)
 	DefaultCallback.Create().Register("gorm:save_before_associations", saveBeforeAssociationsCallback)
 	DefaultCallback.Create().Register("gorm:update_time_stamp", updateTimeStampForCreateCallback)
+	DefaultCallback.Update().Register("gorm:audited", auditedForCreateCallback)
 	DefaultCallback.Create().Register("gorm:create", createCallback)
 	DefaultCallback.Create().Register("gorm:force_reload_after_create", forceReloadAfterCreateCallback)
 	DefaultCallback.Create().Register("gorm:save_after_associations", saveAfterAssociationsCallback)
@@ -43,6 +48,15 @@ func updateTimeStampForCreateCallback(scope *Scope) {
 			if updatedAtField.IsBlank {
 				updatedAtField.Set(now)
 			}
+		}
+	}
+}
+
+// auditedForCreateCallback will set `UpdatedBy` when updating
+func auditedForCreateCallback(scope *Scope) {
+	if _, ok := scope.Get("gorm:created_by_column"); !ok {
+		if user, ok := getCurrentUser(scope); ok {
+			scope.SetColumn("CreatedBy", user)
 		}
 	}
 }
@@ -160,5 +174,24 @@ func afterCreateCallback(scope *Scope) {
 	}
 	if !scope.HasError() {
 		scope.CallMethod("AfterSave")
+	}
+}
+
+func keyStringCallback(scope *Scope) {
+	value := scope.Value
+	reflectValue := reflect.ValueOf(value)
+
+	for reflectValue.Kind() == reflect.Ptr {
+		reflectValue = reflectValue.Elem()
+	}
+
+	pf := scope.PrimaryField()
+
+	if pf != nil && pf.Field.Kind() == reflect.String && pf.Struct.Tag.Get("serial") == "yes" {
+		if pf.Field.String() == "" {
+			v := bson.NewObjectId().String()
+			v = v[13 : len(v)-2]
+			pf.Set(v)
+		}
 	}
 }

@@ -260,10 +260,17 @@ func (scope *Scope) SetColumn(column interface{}, value interface{}) error {
 		return field.Set(value)
 	} else if name, ok := column.(string); ok {
 		var (
+			fields           = scope.Fields()
 			dbName           = ToDBName(name)
 			mostMatchedField *Field
 		)
-		for _, field := range scope.Fields() {
+
+		if field, ok := scope.fieldsByName[name]; ok {
+			updateAttrs[field.DBName] = value
+			return field.Set(value)
+		}
+
+		for _, field := range fields {
 			if field.DBName == value {
 				updateAttrs[field.DBName] = value
 				return field.Set(value)

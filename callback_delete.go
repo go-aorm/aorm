@@ -9,6 +9,7 @@ import (
 func init() {
 	DefaultCallback.Delete().Register("gorm:begin_transaction", beginTransactionCallback)
 	DefaultCallback.Delete().Register("gorm:before_delete", beforeDeleteCallback)
+	DefaultCallback.Delete().Register("gorm:audited", auditedForDeleteCallback)
 	DefaultCallback.Delete().Register("gorm:delete", deleteCallback)
 	DefaultCallback.Delete().Register("gorm:after_delete", afterDeleteCallback)
 	DefaultCallback.Delete().Register("gorm:commit_or_rollback_transaction", commitOrRollbackTransactionCallback)
@@ -22,6 +23,23 @@ func beforeDeleteCallback(scope *Scope) {
 	}
 	if !scope.HasError() {
 		scope.CallMethod("BeforeDelete")
+	}
+}
+
+// auditedForDeleteCallback will set `DeletedBy` when soft delete
+func auditedForDeleteCallback(scope *Scope) {
+	if _, ok := scope.Get("gorm:deleted_by_column"); !ok {
+		if _, hasDeletedAtField := scope.FieldByName("DeletedAt"); hasDeletedAtField {
+			if user, ok := getCurrentUser(scope); ok {
+				if attrs, ok := scope.InstanceGet("gorm:update_attrs"); ok {
+					updateAttrs := attrs.(map[string]interface{})
+					updateAttrs["deleted_by"] = user
+					scope.InstanceSet("gorm:update_attrs", updateAttrs)
+				} else {
+					scope.SetColumn("DeletedBy", user)
+				}
+			}
+		}
 	}
 }
 
