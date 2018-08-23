@@ -13,29 +13,29 @@ type Auditable interface {
 }
 
 type Audited struct {
-	CreatedBy string
-	UpdatedBy *string
+	CreatedByID string
+	UpdatedByID *string
 }
 
 func (a *Audited) SetCreatedBy(createdBy interface{}) {
-	a.CreatedBy = fmt.Sprintf("%v", createdBy)
+	a.CreatedByID = fmt.Sprintf("%v", createdBy)
 }
 
 func (a *Audited) GetCreatedBy() string {
-	return a.CreatedBy
+	return a.CreatedByID
 }
 
 func (a *Audited) SetUpdatedBy(updatedBy interface{}) {
 	if updatedBy == nil {
-		a.UpdatedBy = nil
+		a.UpdatedByID = nil
 	} else {
 		v := fmt.Sprintf("%v", updatedBy)
-		a.UpdatedBy = &v
+		a.UpdatedByID = &v
 	}
 }
 
 func (a *Audited) GetUpdatedBy() *string {
-	return a.UpdatedBy
+	return a.UpdatedByID
 }
 
 type AuditedModel struct {
@@ -51,20 +51,20 @@ type SoftDeleteAuditable interface {
 
 type SoftDeleteAudited struct {
 	SoftDelete
-	DeletedBy *string
+	DeletedByID *string
 }
 
 func (a *SoftDeleteAudited) SetDeletedBy(deletedBy interface{}) {
 	if deletedBy == nil {
-		a.DeletedBy = nil
+		a.DeletedByID = nil
 	} else {
 		v := fmt.Sprintf("%v", deletedBy)
-		a.DeletedBy = &v
+		a.DeletedByID = &v
 	}
 }
 
 func (a *SoftDeleteAudited) GetDeletedBy() *string {
-	return a.DeletedBy
+	return a.DeletedByID
 }
 
 type SoftDeleteAuditedModel struct {
