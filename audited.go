@@ -9,12 +9,12 @@ type Auditable interface {
 	SetCreatedBy(createdBy interface{})
 	GetCreatedBy() string
 	SetUpdatedBy(updatedBy interface{})
-	GetUpdatedBy() string
+	GetUpdatedBy() *string
 }
 
 type Audited struct {
 	CreatedBy string
-	UpdatedBy string
+	UpdatedBy *string
 }
 
 func (a *Audited) SetCreatedBy(createdBy interface{}) {
@@ -26,10 +26,15 @@ func (a *Audited) GetCreatedBy() string {
 }
 
 func (a *Audited) SetUpdatedBy(updatedBy interface{}) {
-	a.UpdatedBy = fmt.Sprintf("%v", updatedBy)
+	if updatedBy == nil {
+		a.UpdatedBy = nil
+	} else {
+		v := fmt.Sprintf("%v", updatedBy)
+		a.UpdatedBy = &v
+	}
 }
 
-func (a *Audited) GetUpdatedBy() string {
+func (a *Audited) GetUpdatedBy() *string {
 	return a.UpdatedBy
 }
 
