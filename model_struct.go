@@ -3,6 +3,7 @@ package aorm
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"go/ast"
 	"reflect"
 	"strings"
@@ -42,13 +43,15 @@ var modelStructsMap = newModelStructsMap()
 
 // ModelStruct model definition
 type ModelStruct struct {
-	PrimaryFields         []*StructField
-	StructFields          []*StructField
-	ModelType             reflect.Type
-	defaultTableName      string
-	StructFieldsByName    map[string]*StructField
-	IgnoredFieldsCount    int
+	PrimaryFields          []*StructField
+	StructFields           []*StructField
+	ModelType              reflect.Type
+	defaultTableName       string
+	StructFieldsByName     map[string]*StructField
+	IgnoredFieldsCount     int
 	BeforeRelatedCallbacks []func(fromScope *Scope, toScope *Scope, db *DB, fromField *Field) *DB
+	virtualFields          map[string]*VirtualField
+	virtualFieldsByIndex   []*VirtualField
 }
 
 func (s *ModelStruct) BeforeRelatedCallback(cb ...func(fromScope *Scope, toScope *Scope, db *DB, fromField *Field) *DB) {
@@ -71,6 +74,33 @@ func (s *ModelStruct) TableName(db *DB) string {
 	}
 
 	return DefaultTableNameHandler(db, s.defaultTableName)
+}
+
+func (s *ModelStruct) SetVirtualField(fieldName string, value interface{}, modelStruct *ModelStruct) *VirtualField {
+	if s.virtualFields != nil {
+		if _, ok := s.virtualFields[fieldName]; ok {
+			panic(fmt.Errorf("Duplicate virtual field %q", fieldName))
+		}
+	} else {
+		s.virtualFields = map[string]*VirtualField{}
+	}
+	vf := &VirtualField{
+		ModelStruct: modelStruct,
+		FieldName:   fieldName,
+		StructIndex: len(s.virtualFieldsByIndex),
+		Value:       value,
+		Options:     map[interface{}]interface{}{},
+	}
+	s.virtualFieldsByIndex = append(s.virtualFieldsByIndex, vf)
+	s.virtualFields[fieldName] = vf
+	return vf
+}
+
+func (s *ModelStruct) GetVirtualField(fieldName string) *VirtualField {
+	if s.virtualFields == nil {
+		return nil
+	}
+	return s.virtualFields[fieldName]
 }
 
 // GetNonIgnoredStructFields get non ignored model's field structs
@@ -96,7 +126,7 @@ func (s *ModelStruct) NonRelatedStructFields() []*StructField {
 			i++
 		}
 	}
-	return fields
+	return fields[0:i]
 }
 
 // GetNonIgnoredStructFields get non ignored model's field structs

@@ -2,6 +2,7 @@ package aorm
 
 import (
 	"fmt"
+	"strings"
 )
 
 type search struct {
@@ -21,7 +22,9 @@ type search struct {
 	offset             interface{}
 	limit              interface{}
 	group              string
+	from               string
 	tableName          string
+	tableAlias         string
 	raw                bool
 	Unscoped           bool
 	ignoreOrderQuery   bool
@@ -169,7 +172,25 @@ func (s *search) unscoped() *search {
 }
 
 func (s *search) Table(name string) *search {
+	// ... as ALIAS
+	if index := strings.LastIndex(name, " "); index != -1 {
+		s.tableAlias = name[index:]
+		// remove " as ALIAS"
+		name = name[0:index-4]
+		// from (select ...) as ALIAS
+		if name[0] == '(' {
+			// without parentesis
+			name = name[1:len(name)-1]
+			s.from = name
+			return s
+		}
+	}
 	s.tableName = name
+	return s
+}
+
+func (s *search) From(from string) *search {
+	s.from = from
 	return s
 }
 

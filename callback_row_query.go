@@ -4,6 +4,7 @@ import "database/sql"
 
 // Define callbacks for row query
 func init() {
+	DefaultCallback.RowQuery().Register("gorm:inline_preload", inlinePreloadCallback)
 	DefaultCallback.RowQuery().Register("gorm:row_query", rowQueryCallback)
 }
 

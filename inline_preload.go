@@ -3,7 +3,7 @@ package aorm
 import (
 	"fmt"
 	"reflect"
-	"strconv"
+	"regexp"
 	"strings"
 )
 
@@ -12,6 +12,7 @@ type InlinePreloader struct {
 	DB               *DB
 	ID               string
 	Field            *StructField
+	VirtualField     *VirtualField
 	Index            [][]int
 	RelationFields   []*StructField
 	StructFields     []*StructField
@@ -33,6 +34,12 @@ func (p *InlinePreloader) Fields(fields ...interface{}) {
 			}
 		case []string:
 			for _, fieldName := range ft {
+				if fieldName == "*" {
+					for _, field := range p.scope.GetNonRelatedStructFields() {
+						p.StructFields = append(p.StructFields, field)
+					}
+					continue
+				}
 				if field, ok := p.scope.GetModelStruct().StructFieldsByName[fieldName]; ok {
 					p.StructFields = append(p.StructFields, field)
 				} else {
@@ -69,14 +76,16 @@ func (p *InlinePreloader) GetFields() []*StructField {
 	if len(p.StructFields) == 0 {
 		if irf, ok := p.scope.Value.(InlinePreloadFields); ok {
 			p.Fields(irf.GetGormInlinePreloadFields())
-			if len(p.StructFields) != 0 {
+			if len(p.StructFields) != 0 || len(p.RelationFields) != 0 {
 				return p.StructFields
 			}
 		}
-		if preload := p.Field.TagSettings["PRELOAD"]; preload != "" {
-			p.Fields(strings.Split(preload, ","))
-			if len(p.StructFields) != 0 {
-				return p.StructFields
+		if p.Field != nil {
+			if preload := p.Field.TagSettings["PRELOAD"]; preload != "" {
+				p.Fields(strings.Split(preload, ","))
+				if len(p.StructFields) != 0 {
+					return p.StructFields
+				}
 			}
 		}
 		p.StructFields = p.scope.GetNonRelatedStructFields()
@@ -97,14 +106,43 @@ func (p *InlinePreloader) GetQuery() string {
 }
 
 func (p *InlinePreloader) Apply() {
-	p.rootScope.Search.ExtraSelectFieldsSetter(p.ID, p.Scan, p.GetFields(), p.GetQuery())
+	field := p.GetFields()
+	if !p.rootScope.counter {
+		p.rootScope.Search.ExtraSelectFieldsSetter(p.ID, p.Scan, field, p.GetQuery())
+	}
 }
 
 func (p *InlinePreloader) Scan(result interface{}, values []interface{}, set func(result interface{}, low, hight int) interface{}) {
 	if !values[0].(*ValueScanner).IsNil() {
 		field := reflect.ValueOf(result).Elem()
+		ms := p.rootScope.GetModelStruct()
 		for _, pth := range p.Index {
-			field = field.FieldByIndex(pth)
+			if len(pth) == 1 && pth[0] < 0 {
+				i := (pth[0] * -1) - 1
+				vf := ms.virtualFieldsByIndex[i]
+				if mvf, ok := field.Addr().Interface().(ModelWithVirtualFields); ok {
+					v, ok := mvf.GetVirtualField(vf.FieldName)
+					if ok {
+						field = reflect.Indirect(reflect.ValueOf(v))
+					} else {
+						rv := reflect.New(vf.ModelStruct.ModelType)
+						v = rv.Interface()
+						mvf.SetVirtualField(vf.FieldName, v)
+						field = rv
+					}
+				} else if vf.Getter != nil {
+					if v, ok := vf.Getter(field.Addr().Interface()); ok {
+						field = reflect.Indirect(reflect.ValueOf(v))
+					} else {
+						rv := reflect.New(vf.ModelStruct.ModelType)
+						v = rv.Interface()
+						vf.Setter(field.Addr().Interface(), v)
+						field = rv
+					}
+				}
+			} else {
+				field = field.FieldByIndex(pth)
+			}
 		}
 		set(field, 0, 0)
 	}
@@ -114,16 +152,77 @@ type InlinePreloadFields interface {
 	GetGormInlinePreloadFields() []string
 }
 
-type InlinePreloadCounter struct {
+type InlinePreloads struct {
 	Count uint
+	// map of field path -> alias_name
+	DBNames map[string]string
 }
 
-func (c *InlinePreloadCounter) Next() uint {
+func (c *InlinePreloads) Next(fieldPath ...string) string {
 	v := c.Count
 	c.Count++
-	return v
+	dbName := fmt.Sprintf("gorm_prl_%d", v)
+	if c.DBNames == nil {
+		c.DBNames = map[string]string{}
+	}
+	c.DBNames[strings.Join(fieldPath, ".")] = dbName
+	return dbName
 }
 
-func (c *InlinePreloadCounter) NextS() string {
-	return strconv.Itoa(int(c.Next()))
+func (c *InlinePreloads) GetDBName(path string) (dbName string, ok bool) {
+	if c.DBNames == nil {
+		return
+	}
+	dbName, ok = c.DBNames[path]
+	return
+}
+
+type WithInlineQuery struct {
+	query string
+	paths []string
+}
+
+func IQ(query string) *WithInlineQuery {
+	paths := PathsFromQuery(query)
+	return &WithInlineQuery{query, paths}
+}
+
+func (iq *WithInlineQuery) Query() string {
+	return iq.query
+}
+
+func (iq *WithInlineQuery) Paths() []string {
+	return iq.paths
+}
+
+func (iq *WithInlineQuery) Merge(scope *Scope) string {
+	query := iq.query
+	tbName := scope.TableName()
+	for _, p := range iq.paths {
+		if p == "" {
+			query = strings.Replace(query, "{}", tbName, -1)
+		} else {
+			query = strings.Replace(query, "{"+p+"}", scope.inlinePreloads.DBNames[p], -1)
+		}
+	}
+	return query
+}
+
+var fieldPathRegex, _ = regexp.Compile(`\{(|\w+(\.\w+)*)\}`)
+
+func PathsFromQuery(query string) (paths []string) {
+	var (
+		p  string
+		ok bool
+		pm = map[string]bool{}
+	)
+
+	for _, match := range fieldPathRegex.FindAllStringSubmatch(query, -1) {
+		p = match[1]
+		if ok, _ = pm[p]; !ok {
+			pm[p] = true
+			paths = append(paths, p)
+		}
+	}
+	return
 }

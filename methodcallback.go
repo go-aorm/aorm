@@ -1,8 +1,8 @@
 package aorm
 
 import (
-	"reflect"
 	"fmt"
+	"reflect"
 	"sync"
 )
 
@@ -163,7 +163,7 @@ func NewStructFieldMethodCallbacksRegistrator() *StructFieldMethodCallbacksRegis
 		new(sync.RWMutex)}
 }
 
-func AfterScanMethodCallback(methodInfo *Method, method interface{}, field *Field, scope *Scope) {
+func AfterScanMethodCallback(_ *Method, method interface{}, field *Field, scope *Scope) {
 	switch method := method.(type) {
 	case func():
 		method()

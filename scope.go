@@ -25,6 +25,8 @@ type Scope struct {
 	fields          *[]*Field
 	fieldsByName    map[string]*Field
 	selectAttrs     *[]string
+	inlinePreloads  *InlinePreloads
+	counter         bool
 }
 
 // IndirectValue return scope's reflect value's indirect value
@@ -112,10 +114,11 @@ func (scope *Scope) Fields() []*Field {
 			isStruct           = indirectScopeValue.Kind() == reflect.Struct
 			byName             = make(map[string]*Field)
 			field              *Field
+			modelStuct         = scope.GetModelStruct()
 		)
 
 		if isStruct {
-			for _, structField := range scope.GetModelStruct().StructFields {
+			for _, structField := range modelStuct.StructFields {
 				fieldValue := indirectScopeValue.FieldByIndex(structField.StructIndex)
 				field = &Field{StructField: structField, Field: fieldValue, IsBlank: isBlank(fieldValue)}
 				fields = append(fields, field)
@@ -124,7 +127,7 @@ func (scope *Scope) Fields() []*Field {
 				}
 			}
 		} else {
-			for _, structField := range scope.GetModelStruct().StructFields {
+			for _, structField := range modelStuct.StructFields {
 				field = &Field{StructField: structField, IsBlank: true}
 
 				fields = append(fields, field)
@@ -361,11 +364,7 @@ type dbTabler interface {
 }
 
 // TableName return table name
-func (scope *Scope) TableName() string {
-	if scope.Search != nil && len(scope.Search.tableName) > 0 {
-		return scope.Search.tableName
-	}
-
+func (scope *Scope) RealTableName() string {
 	if tabler, ok := scope.Value.(tabler); ok {
 		return tabler.TableName()
 	}
@@ -377,16 +376,44 @@ func (scope *Scope) TableName() string {
 	return scope.GetModelStruct().TableName(scope.db.Model(scope.Value))
 }
 
-// QuotedTableName return quoted table name
-func (scope *Scope) QuotedTableName() (name string) {
-	if scope.Search != nil && len(scope.Search.tableName) > 0 {
-		if strings.Index(scope.Search.tableName, " ") != -1 {
+// TableName return table name
+func (scope *Scope) TableName() string {
+	if scope.Search != nil {
+		if scope.Search.tableAlias != "" {
+			return scope.Search.tableAlias
+		}
+		if scope.Search.tableName != "" {
 			return scope.Search.tableName
 		}
-		return scope.Quote(scope.Search.tableName)
 	}
 
+	return scope.RealTableName()
+}
+
+// QuotedTableName return quoted table name
+func (scope *Scope) QuotedTableName() (name string) {
 	return scope.Quote(scope.TableName())
+}
+
+// fromSql return from sql
+func (scope *Scope) fromSql() (query string) {
+	if s := scope.Search; s != nil {
+		if s.from == "" {
+			if s.tableName == "" {
+				query = scope.Quote(scope.RealTableName())
+			} else {
+				query = s.tableName
+			}
+		} else {
+			query = "(" + s.from + ")"
+		}
+		if s.tableAlias != "" {
+			query += " AS " + scope.Quote(s.tableAlias)
+		}
+		return query
+	}
+
+	return scope.Quote(scope.RealTableName())
 }
 
 // CombinedConditionSql return combined condition sql
@@ -599,12 +626,6 @@ func (scope *Scope) scan(rows *sql.Rows, columns []string, fields []*Field, resu
 
 	disableScanField := make(map[int]bool)
 
-	for index, _ := range resetFields {
-		if !values[index].(*ValueScanner).IsValid {
-			disableScanField[index] = true
-		}
-	}
-
 	if result != nil {
 		if extraValuesSize > 0 {
 			extraColumns := columns[len(values) : len(values)+extraFieldsSize]
@@ -651,6 +672,12 @@ func (scope *Scope) buildCondition(clause map[string]interface{}, include bool) 
 	}
 
 	switch value := clause["query"].(type) {
+	case *WithInlineQuery:
+		defer func() {
+			clause["query"] = value
+		}()
+		clause["query"] = value.Merge(scope)
+		return scope.buildCondition(clause, include)
 	case sql.NullInt64:
 		return fmt.Sprintf("(%v.%v %s %v)", quotedTableName, quotedPrimaryKey, equalSQL, value.Int64)
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
@@ -784,6 +811,23 @@ func (scope *Scope) buildSelectQuery(clause map[string]interface{}) (str string)
 		str = value
 	case []string:
 		str = strings.Join(value, ", ")
+	case []interface{}:
+		var columns []string
+		for _, arg := range value {
+			switch at := arg.(type) {
+			case string:
+				columns = append(columns, at)
+			case *WithInlineQuery:
+				columns = append(columns, at.Merge(scope))
+			case *Alias:
+				columns = append(columns, at.Expr+" AS "+at.Name)
+			}
+		}
+		str = strings.Join(columns, ", ")
+	case *WithInlineQuery:
+		str = value.Merge(scope)
+	case *Alias:
+		str = value.Expr + " AS " + value.Name
 	}
 
 	args := clause["args"].([]interface{})
@@ -968,7 +1012,7 @@ func (scope *Scope) prepareQuerySQL() {
 	if scope.Search.raw {
 		scope.Raw(scope.CombinedConditionSql())
 	} else {
-		scope.Raw(fmt.Sprintf("SELECT %v FROM %v %v", scope.selectSQL(), scope.QuotedTableName(), scope.CombinedConditionSql()))
+		scope.Raw(fmt.Sprintf("SELECT %v FROM %v %v", scope.selectSQL(), scope.fromSql(), scope.CombinedConditionSql()))
 	}
 	return
 }
@@ -1132,6 +1176,8 @@ func (scope *Scope) count(value interface{}) *Scope {
 		}
 	}
 	scope.Search.ignoreOrderQuery = true
+	scope.counter = true
+	//inlinePreloadCallback(scope)
 	scope.Err(scope.row().Scan(value))
 	return scope
 }
@@ -1524,4 +1570,19 @@ func (scope *Scope) hasConditions() bool {
 		len(scope.Search.whereConditions) > 0 ||
 		len(scope.Search.orConditions) > 0 ||
 		len(scope.Search.notConditions) > 0
+}
+
+func (s *Scope) SetVirtualField(fieldName string, value interface{}, options ...map[interface{}]interface{}) *VirtualField {
+	modelStruct := s.New(value).GetModelStruct()
+	vf := s.GetModelStruct().SetVirtualField(fieldName, value, modelStruct)
+	for _, options := range options {
+		for key, value := range options {
+			vf.Options[key] = value
+		}
+	}
+	return vf
+}
+
+func (s *Scope) GetVirtualField(fieldName string) *VirtualField {
+	return s.GetModelStruct().GetVirtualField(fieldName)
 }

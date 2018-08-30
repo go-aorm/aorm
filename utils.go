@@ -381,3 +381,8 @@ func isNil(value reflect.Value) bool {
 	}
 	return false
 }
+
+type Alias struct {
+	Expr string
+	Name string
+}
