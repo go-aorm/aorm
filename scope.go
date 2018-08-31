@@ -1586,3 +1586,10 @@ func (s *Scope) SetVirtualField(fieldName string, value interface{}, options ...
 func (s *Scope) GetVirtualField(fieldName string) *VirtualField {
 	return s.GetModelStruct().GetVirtualField(fieldName)
 }
+
+func (s *Scope) runQueryRows() (rows *sql.Rows, err error) {
+	if rows, err = s.SQLDB().Query(s.SQL, s.SQLVars...); err != nil {
+		s.Err(err)
+	}
+	return
+}
