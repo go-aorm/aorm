@@ -1593,3 +1593,7 @@ func (s *Scope) runQueryRows() (rows *sql.Rows, err error) {
 	}
 	return
 }
+
+func (s *Scope) runQueryRow() (row *sql.Row) {
+	return s.SQLDB().QueryRow(s.SQL, s.SQLVars...)
+}

@@ -1,8 +1,16 @@
 package aorm
 
-type ModelWithVirtualFields interface {
+type VirtualFieldsSetter interface {
 	SetVirtualField(fieldName string, value interface{})
+}
+
+type VirtualFieldsGetter interface {
 	GetVirtualField(fieldName string) (value interface{}, ok bool)
+}
+
+type ModelWithVirtualFields interface {
+	VirtualFieldsGetter
+	VirtualFieldsSetter
 }
 
 type VirtualField struct {
