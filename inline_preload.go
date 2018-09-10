@@ -114,7 +114,7 @@ func (p *InlinePreloader) Apply() {
 
 func (p *InlinePreloader) Scan(result interface{}, values []interface{}, set func(result interface{}, low, hight int) interface{}) {
 	if !values[0].(*ValueScanner).IsNil() {
-		field := reflect.ValueOf(result).Elem()
+		field := reflect.Indirect(reflect.ValueOf(result))
 		ms := p.rootScope.GetModelStruct()
 		for _, pth := range p.Index {
 			if len(pth) == 1 && pth[0] < 0 {
@@ -142,6 +142,9 @@ func (p *InlinePreloader) Scan(result interface{}, values []interface{}, set fun
 				}
 			} else {
 				field = field.FieldByIndex(pth)
+				if field.Kind() == reflect.Ptr && isNil(field) {
+					field.Set(reflect.New(field.Type().Elem()))
+				}
 			}
 		}
 		set(field, 0, 0)

@@ -88,7 +88,7 @@ func inlinePreload(rootScope, scope *Scope, index [][]int) {
 					currentModelStruct = vf.ModelStruct
 					preloadedMap[preloadKey] = true
 				} else {
-					scope.Err(fmt.Errorf("can't preload field %s for %s", preloadField, currentModelStruct.ModelType))
+					scope.Err(fmt.Errorf("can't inline preload field %s for %s", preloadField, currentModelStruct.ModelType))
 					return
 				}
 			}

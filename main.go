@@ -715,16 +715,30 @@ func (s *DB) InlinePreload(column string, conditions ...interface{}) *DB {
 
 // AutoInlinePreload preload associations
 func (s *DB) AutoInlinePreload(value interface{}) *DB {
+	modelStruct := s.NewScope(value).GetModelStruct()
+	var clone *DB
 	if ipf, ok := value.(InlinePreloadFields); ok {
-		modelStruct := s.NewScope(value).GetModelStruct()
-		s = s.clone()
+		clone = s.clone()
 		for _, fieldName := range ipf.GetGormInlinePreloadFields() {
 			if f, ok := modelStruct.StructFieldsByName[fieldName]; ok {
 				if f.Relationship != nil {
-					s.search.InlinePreload(f.Name)
+					clone.search.InlinePreload(f.Name)
 				}
 			}
 		}
+	}
+
+	if modelStruct.virtualFieldsAutoInlinePreload != nil {
+		if clone == nil {
+			clone = s.clone()
+		}
+		for _, fieldName := range modelStruct.virtualFieldsAutoInlinePreload {
+			clone.search.InlinePreload(fieldName)
+		}
+	}
+
+	if clone != nil {
+		return clone
 	}
 	return s
 }

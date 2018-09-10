@@ -52,6 +52,7 @@ type ModelStruct struct {
 	BeforeRelatedCallbacks []func(fromScope *Scope, toScope *Scope, db *DB, fromField *Field) *DB
 	virtualFields          map[string]*VirtualField
 	virtualFieldsByIndex   []*VirtualField
+	virtualFieldsAutoInlinePreload []string
 }
 
 func (s *ModelStruct) BeforeRelatedCallback(cb ...func(fromScope *Scope, toScope *Scope, db *DB, fromField *Field) *DB) {
@@ -137,6 +138,11 @@ func (s *ModelStruct) NormalStructFields() (fields []*StructField) {
 		}
 	}
 	return fields
+}
+
+// AutoInlinePreload set default auto inline preload virtual field names
+func (s *ModelStruct) AutoInlinePreload(virtualFieldName ...string) {
+	s.virtualFieldsAutoInlinePreload = append(s.virtualFieldsAutoInlinePreload, virtualFieldName...)
 }
 
 type StructFieldMethodCallback struct {
