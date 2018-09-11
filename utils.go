@@ -320,6 +320,16 @@ func toString(str interface{}) string {
 	return ""
 }
 
+// TupleQueryArgs create tuple args from argCount
+func TupleQueryArgs(argCount int) (query string) {
+	if argCount == 0 {
+		return
+	}
+	query = strings.Repeat("?,", argCount)
+	query = query[0 : len(query)-1]
+	return "(" + query + ")"
+}
+
 func makeSlice(elemType reflect.Type) interface{} {
 	if elemType.Kind() == reflect.Slice {
 		elemType = elemType.Elem()
