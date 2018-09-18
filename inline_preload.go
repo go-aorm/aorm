@@ -146,6 +146,7 @@ func (p *InlinePreloader) Scan(result interface{}, values []interface{}, set fun
 					field.Set(reflect.New(field.Type().Elem()))
 				}
 			}
+			field = reflect.Indirect(field)
 		}
 		set(field, 0, 0)
 	}
