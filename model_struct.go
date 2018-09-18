@@ -43,15 +43,15 @@ var modelStructsMap = newModelStructsMap()
 
 // ModelStruct model definition
 type ModelStruct struct {
-	PrimaryFields          []*StructField
-	StructFields           []*StructField
-	ModelType              reflect.Type
-	defaultTableName       string
-	StructFieldsByName     map[string]*StructField
-	IgnoredFieldsCount     int
-	BeforeRelatedCallbacks []func(fromScope *Scope, toScope *Scope, db *DB, fromField *Field) *DB
-	virtualFields          map[string]*VirtualField
-	virtualFieldsByIndex   []*VirtualField
+	PrimaryFields                  []*StructField
+	StructFields                   []*StructField
+	ModelType                      reflect.Type
+	defaultTableName               string
+	StructFieldsByName             map[string]*StructField
+	IgnoredFieldsCount             int
+	BeforeRelatedCallbacks         []func(fromScope *Scope, toScope *Scope, db *DB, fromField *Field) *DB
+	virtualFields                  map[string]*VirtualField
+	virtualFieldsByIndex           []*VirtualField
 	virtualFieldsAutoInlinePreload []string
 }
 
