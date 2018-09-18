@@ -1558,6 +1558,13 @@ func (scope *Scope) getColumnAsScope(column string) *Scope {
 			return scope.New(results.Interface())
 		case reflect.Struct:
 			if field := indirectScopeValue.FieldByIndex(fieldStruct.StructIndex); field.CanAddr() {
+				if field.Kind() == reflect.Ptr {
+					if isNil(field) {
+						value := reflect.New(field.Type().Elem()).Interface()
+						return scope.New(value)
+					}
+					return scope.New(field.Interface())
+				}
 				return scope.New(field.Addr().Interface())
 			}
 		}
