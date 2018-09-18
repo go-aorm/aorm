@@ -105,13 +105,15 @@ func updateCallback(scope *Scope) {
 		}
 
 		if len(sqls) > 0 {
-			scope.Raw(fmt.Sprintf(
+			query := fmt.Sprintf(
 				"UPDATE %v SET %v%v%v",
 				scope.QuotedTableName(),
 				strings.Join(sqls, ", "),
 				addExtraSpaceIfExist(scope.CombinedConditionSql()),
 				addExtraSpaceIfExist(extraOption),
-			)).Exec()
+			)
+			scope.logQuery("update", &query)
+			scope.Raw(query).Exec()
 		}
 	}
 }
