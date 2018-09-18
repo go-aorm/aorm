@@ -145,6 +145,38 @@ func (s *ModelStruct) AutoInlinePreload(virtualFieldName ...string) {
 	s.virtualFieldsAutoInlinePreload = append(s.virtualFieldsAutoInlinePreload, virtualFieldName...)
 }
 
+// FieldDiscovery discovery field from name or path
+func (s *ModelStruct) FieldDiscovery(pth string) (field *StructField, virtualField *VirtualField) {
+	currentModelStruct := s
+	parts := strings.Split(pth, ".")
+
+	for _, fieldName := range parts[0 : len(parts)-1] {
+		if f, ok := currentModelStruct.StructFieldsByName[fieldName]; ok {
+			typ := f.Struct.Type
+			switch typ.Kind() {
+			case reflect.Slice, reflect.Ptr:
+				typ = typ.Elem()
+			}
+			currentModelStruct = modelStructsMap.Get(typ)
+		} else {
+			if vfield := currentModelStruct.GetVirtualField(fieldName); vfield == nil {
+				return
+			} else {
+				currentModelStruct = vfield.ModelStruct
+			}
+		}
+	}
+
+	fieldName := parts[len(parts)-1]
+	var ok bool
+
+	if field, ok = currentModelStruct.StructFieldsByName[fieldName]; !ok {
+		virtualField = currentModelStruct.GetVirtualField(fieldName)
+	}
+
+	return
+}
+
 type StructFieldMethodCallback struct {
 	Method
 	Caller reflect.Value
