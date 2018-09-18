@@ -1604,3 +1604,12 @@ func (s *Scope) runQueryRows() (rows *sql.Rows, err error) {
 func (s *Scope) runQueryRow() (row *sql.Row) {
 	return s.SQLDB().QueryRow(s.SQL, s.SQLVars...)
 }
+
+func (s *Scope) logQuery(key string, query *string) {
+	key = "gorm:" + key + "_logger"
+	if cb, ok := s.Get(key + ":" + s.RealTableName()); ok {
+		cb.(func(query *string, scope *Scope))(query, s)
+	} else if cb, ok := s.Get(key); ok {
+		cb.(func(query *string, scope *Scope))(query, s)
+	}
+}
