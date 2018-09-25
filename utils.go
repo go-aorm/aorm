@@ -144,6 +144,13 @@ func indirectType(reflectType reflect.Type) reflect.Type {
 	return reflectType
 }
 
+func indirectRealType(reflectType reflect.Type) reflect.Type {
+	for reflectType.Kind() == reflect.Ptr || reflectType.Kind() == reflect.Interface {
+		reflectType = reflectType.Elem()
+	}
+	return reflectType
+}
+
 func ptrToType(reflectType reflect.Type) reflect.Type {
 	reflectType = indirectType(reflectType)
 	return reflect.PtrTo(reflectType)
