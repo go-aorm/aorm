@@ -550,10 +550,8 @@ func (s *DB) NewRecord(value interface{}) bool {
 
 // RecordNotFound check if returning ErrRecordNotFound error
 func (s *DB) RecordNotFound() bool {
-	for _, err := range s.GetErrors() {
-		if err == ErrRecordNotFound {
-			return true
-		}
+	if !IsError(ErrRecordNotFound, s.GetErrors()...) {
+		return true
 	}
 	return false
 }
@@ -771,7 +769,7 @@ func (s *DB) SetJoinTableHandler(source interface{}, column string, handler Join
 // AddError add error to the db
 func (s *DB) AddError(err error) error {
 	if err != nil {
-		if err != ErrRecordNotFound {
+		if !IsError(err, ErrRecordNotFound) {
 			if len(s.path) > 0 {
 				err = fmt.Errorf("DB{%v}: %v", s.PathString(), err)
 			}

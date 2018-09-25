@@ -85,6 +85,9 @@ func (scope *Scope) Quote(str string) string {
 // Err add error to Scope
 func (scope *Scope) Err(err error) error {
 	if err != nil {
+		if scope.SQL != "" {
+			err = &QueryError{err, scope.SQL, scope.SQLVars}
+		}
 		scope.db.AddError(err)
 	}
 	return err

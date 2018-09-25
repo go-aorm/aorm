@@ -13,12 +13,12 @@ import (
 	"time"
 
 	"github.com/erikstmartin/go-testdb"
+	"github.com/jinzhu/now"
 	"github.com/moisespsena-go/aorm"
 	_ "github.com/moisespsena-go/aorm/dialects/mssql"
 	_ "github.com/moisespsena-go/aorm/dialects/mysql"
 	"github.com/moisespsena-go/aorm/dialects/postgres"
 	_ "github.com/moisespsena-go/aorm/dialects/sqlite"
-	"github.com/jinzhu/now"
 )
 
 var (
@@ -523,7 +523,7 @@ func TestRaw(t *testing.T) {
 	}
 
 	DB.Exec("update users set name=? where name in (?)", "jinzhu", []string{user1.Name, user2.Name, user3.Name})
-	if DB.Where("name in (?)", []string{user1.Name, user2.Name, user3.Name}).First(&User{}).Error != aorm.ErrRecordNotFound {
+	if aorm.IsRecordNotFoundError(DB.Where("name in (?)", []string{user1.Name, user2.Name, user3.Name}).First(&User{}).Error) {
 		t.Error("Raw sql to update records")
 	}
 }
@@ -846,7 +846,7 @@ func TestOpenExistingDB(t *testing.T) {
 	}
 
 	var user User
-	if db.Where("name = ?", "jnfeinstein").First(&user).Error == aorm.ErrRecordNotFound {
+	if aorm.IsRecordNotFoundError(db.Where("name = ?", "jnfeinstein").First(&user).Error) {
 		t.Errorf("Should have found existing record")
 	}
 }

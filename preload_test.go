@@ -162,7 +162,7 @@ func TestNestedPreload1(t *testing.T) {
 		t.Errorf("got %s; want %s", toJSONString(got), toJSONString(want))
 	}
 
-	if err := DB.Preload("Level2").Preload("Level2.Level1").Find(&got, "name = ?", "not_found").Error; err != aorm.ErrRecordNotFound {
+	if err := DB.Preload("Level2").Preload("Level2.Level1").Find(&got, "name = ?", "not_found").Error; aorm.IsRecordNotFoundError(err) {
 		t.Error(err)
 	}
 }
@@ -1078,7 +1078,7 @@ func TestNestedManyToManyPreload(t *testing.T) {
 		t.Errorf("got %s; want %s", toJSONString(got), toJSONString(want))
 	}
 
-	if err := DB.Preload("Level2s.Level1s").Find(&got, "value = ?", "not_found").Error; err != aorm.ErrRecordNotFound {
+	if err := DB.Preload("Level2s.Level1s").Find(&got, "value = ?", "not_found").Error; !aorm.IsRecordNotFoundError(err) {
 		t.Error(err)
 	}
 }
@@ -1135,7 +1135,7 @@ func TestNestedManyToManyPreload2(t *testing.T) {
 		t.Errorf("got %s; want %s", toJSONString(got), toJSONString(want))
 	}
 
-	if err := DB.Preload("Level2.Level1s").Find(&got, "value = ?", "not_found").Error; err != aorm.ErrRecordNotFound {
+	if err := DB.Preload("Level2.Level1s").Find(&got, "value = ?", "not_found").Error; !aorm.IsRecordNotFoundError(err) {
 		t.Error(err)
 	}
 }
