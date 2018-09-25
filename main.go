@@ -89,16 +89,6 @@ func Open(dialect string, args ...interface{}) (db *DB, err error) {
 	return
 }
 
-// FakeDB create a new fake db with dialect
-func FakeDB(dialect string) (db *DB) {
-	db = &DB{
-		values:  map[string]interface{}{},
-		dialect: newDialect(dialect, nil),
-	}
-	db.parent = db
-	return
-}
-
 // New clone a new db connection without search conditions
 func (s *DB) New() *DB {
 	clone := s.clone()
