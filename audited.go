@@ -2,7 +2,6 @@ package aorm
 
 import (
 	"fmt"
-	"strconv"
 )
 
 type Auditable interface {
@@ -72,28 +71,6 @@ type SoftDeleteAuditedModel struct {
 	SoftDeleteAudited
 }
 
-func getCurrentUser(scope *Scope) (string, bool) {
-	var user interface{}
-	var hasUser bool
-
-	user, hasUser = scope.DB().Get("gorm:current_user")
-
-	if !hasUser {
-		return "", false
-	}
-
-	var currentUser string
-	switch ut := user.(type) {
-	case string:
-		return ut, currentUser != ""
-	case uint:
-		return strconv.Itoa(int(ut)), ut != 0
-	default:
-		if primaryField := scope.New(user).PrimaryField(); primaryField != nil {
-			currentUser = fmt.Sprintf("%v", primaryField.Field.Interface())
-		} else {
-			currentUser = fmt.Sprintf("%v", user)
-		}
-		return currentUser, true
-	}
+func (scope *Scope) GetCurrentUserID() (id string, ok bool) {
+	return scope.db.GetCurrentUserID()
 }

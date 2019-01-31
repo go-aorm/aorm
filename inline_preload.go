@@ -7,6 +7,25 @@ import (
 	"strings"
 )
 
+type InlinePreloadInfo struct {
+	RootScope, ParentScope, Scope *Scope
+	Preloader *InlinePreloader
+	Conditions *Conditions
+}
+
+type InlinePreloadOptions struct {
+	Conditions
+	RelatedConditions []interface{}
+	Select     []interface{}
+	Join       JoinType
+	Prepare    func(builder *InlinePreloadBuilder)
+}
+
+type InlinePreloadBuilder struct {
+	*Conditions
+	*InlinePreloadInfo
+}
+
 type InlinePreloader struct {
 	rootScope, scope *Scope
 	DB               *DB
@@ -127,16 +146,16 @@ func (p *InlinePreloader) Scan(result interface{}, values []interface{}, set fun
 					} else {
 						rv := reflect.New(vf.ModelStruct.ModelType)
 						v = rv.Interface()
-						mvf.SetVirtualField(vf.FieldName, v)
+						vf.Set(mvf, v)
 						field = rv
 					}
 				} else if vf.Getter != nil {
-					if v, ok := vf.Getter(field.Addr().Interface()); ok {
+					if v, ok := vf.Getter(vf, field.Addr().Interface()); ok {
 						field = reflect.Indirect(reflect.ValueOf(v))
 					} else {
 						rv := reflect.New(vf.ModelStruct.ModelType)
 						v = rv.Interface()
-						vf.Setter(field.Addr().Interface(), v)
+						vf.Set(field.Addr().Interface(), v)
 						field = rv
 					}
 				}
@@ -149,6 +168,9 @@ func (p *InlinePreloader) Scan(result interface{}, values []interface{}, set fun
 			field = reflect.Indirect(field)
 		}
 		set(field, 0, 0)
+		if cb, ok := result.(AfterInlinePreloadScanner); ok {
+			cb.AormAfterInlinePreloadScan(p, result, field.Addr().Interface())
+		}
 	}
 }
 
@@ -229,4 +251,8 @@ func PathsFromQuery(query string) (paths []string) {
 		}
 	}
 	return
+}
+
+type AfterInlinePreloadScanner interface {
+	AormAfterInlinePreloadScan(ip *InlinePreloader, recorde, value interface{})
 }

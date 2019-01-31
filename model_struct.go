@@ -204,6 +204,7 @@ type StructField struct {
 	MethodCallbacks map[string]StructFieldMethodCallback
 	StructIndex     []int
 	Index           int
+	Assigner        Assigner
 }
 
 // Call the method callback if exists by name.
@@ -331,6 +332,13 @@ func (scope *Scope) GetModelStruct() *ModelStruct {
 				}
 
 				fieldValue := reflect.New(indirectType).Interface()
+
+				if fieldAssigner, ok := fieldValue.(FieldAssigner); ok {
+					field.Assigner = fieldAssigner.GormAssigner()
+				} else if scope.db != nil && field.Assigner == nil {
+					field.Assigner = scope.db.GetAssigner(indirectType)
+				}
+
 				if _, isScanner := fieldValue.(sql.Scanner); isScanner {
 					// is scanner
 					field.IsScanner, field.IsNormal = true, true
@@ -766,6 +774,11 @@ func (scope *Scope) GetModelStruct() *ModelStruct {
 	modelStructsMap.Set(reflectType, &modelStruct)
 
 	return &modelStruct
+}
+
+// ModelStructFor get value's model struct, relationships based on struct and tag definition for value
+func (scope *Scope) ModelStructFor(value interface{}) *ModelStruct {
+	return scope.New(value).GetModelStruct()
 }
 
 // GetStructFields get model's field structs

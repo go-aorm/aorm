@@ -10,22 +10,34 @@ func NewFieldScanner(field *Field) *ValueScanner {
 	s := &ValueScanner{
 		Field: field,
 		Typ:   typ,
-		Set: func(f *ValueScanner) {
-			if !f.IsPtr {
-				reflectValue := reflect.ValueOf(f.Data).Elem().Elem()
-				if reflectValue.IsValid() {
-					value.Set(reflectValue)
-				}
-			}
-		}}
+	}
 
 	if value.Kind() == reflect.Ptr {
-		s.IsPtr = true
-		s.Data = value.Addr().Interface()
+		s.Ptr = true
+		s.Data = value.Interface()
+		s.MakePtr = func() interface{} {
+			return reflect.New(typ.Elem()).Interface()
+		}
+		s.Set = func(f *ValueScanner) {
+			value.Set(reflect.ValueOf(f.Data))
+		}
 	} else {
-		reflectValue := reflect.New(reflect.PtrTo(typ))
-		reflectValue.Elem().Set(value.Addr())
-		s.Data = reflectValue.Interface()
+		s.Set = func(f *ValueScanner) {
+			reflectValue := reflect.ValueOf(f.Data)
+			if reflectValue.Kind() == reflect.Struct {
+				reflectValue = reflectValue.Elem()
+			}
+			if reflectValue.IsValid() {
+				value.Set(reflectValue.Elem())
+			}
+		}
+		if value.Kind() == reflect.Struct {
+			s.Data = value.Addr().Interface()
+		} else {
+			reflectValue := reflect.New(reflect.PtrTo(typ))
+			reflectValue.Elem().Set(value.Addr())
+			s.Data = reflectValue.Elem().Interface()
+		}
 	}
 	return s
 }
@@ -42,12 +54,17 @@ type ValueScanner struct {
 	Data    interface{}
 	NotNil  bool
 	IsValid bool
-	IsPtr   bool
+	Ptr     bool
 	Set     func(f *ValueScanner)
+	MakePtr func() interface{}
 }
 
 func (f *ValueScanner) IsNil() bool {
 	return !f.NotNil
+}
+
+func (f *ValueScanner) IsPtr() bool {
+	return f.Ptr
 }
 
 func (f *ValueScanner) Scan(src interface{}) error {
@@ -56,7 +73,11 @@ func (f *ValueScanner) Scan(src interface{}) error {
 		return scan.Scan(src)
 	}
 	if src != nil {
-		err := convertAssign(f.Data, src)
+		if f.Ptr && f.MakePtr != nil {
+			f.Data = f.MakePtr()
+		}
+		var err error
+		err = convertAssign(f.Data, src)
 		if err == nil && f.Set != nil {
 			f.Set(f)
 		}

@@ -403,3 +403,54 @@ type Alias struct {
 	Expr string
 	Name string
 }
+
+func SQLToString(query string, args ...interface{}) string {
+	if query == "" {
+		return ""
+	}
+	var b bytes.Buffer
+	b.WriteString("<< " + query + " >>")
+	if len(args) > 0 {
+		b.WriteString("\nArgs:\n")
+
+		for i, arg := range args {
+			typ := reflect.TypeOf(arg)
+			line := fmt.Sprintf("  - %v: %v[%s] ", i, indirectType(typ).PkgPath(), typ)
+			if isNil(reflect.ValueOf(arg)) {
+				b.WriteString(line + "<nil>\n")
+			} else {
+				var empty bool
+				switch at := arg.(type) {
+				case string:
+					if at == "" {
+						empty = true
+					}
+				case *string:
+					if *at == "" {
+						empty = true
+					}
+				case driver.Valuer:
+					if v, err := at.Value(); err == nil && fmt.Sprint(v) == "" {
+						empty = true
+					}
+				case Zeroer:
+					if at.IsZero() {
+						empty = true
+					}
+				}
+				if empty {
+					b.WriteString(line + "<empty>\n")
+					continue
+				}
+				switch at := arg.(type) {
+				case time.Time:
+					arg = at.Format("2006-01-02T15:04:05-0700")
+				case *time.Time:
+					arg = at.Format("2006-01-02T15:04:05-0700")
+				}
+				b.WriteString(line + fmt.Sprint(arg) + "\n")
+			}
+		}
+	}
+	return b.String()
+}

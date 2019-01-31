@@ -6,19 +6,6 @@ import (
 	"strings"
 )
 
-type InlinePreloadOption uint
-
-func (ipo InlinePreloadOption) IsInnerJoin() bool {
-	if (ipo & IPO_INNER_JOIN) != 0 {
-		return true
-	}
-	return false
-}
-
-const (
-	IPO_INNER_JOIN InlinePreloadOption = 1 << iota
-)
-
 func InlinePreloadCallback(scope *Scope) {
 	inlinePreloadCallback(scope)
 }
@@ -64,19 +51,19 @@ func inlinePreload(rootScope, scope *Scope, index [][]int) {
 		)
 
 		for idx, preloadField := range preloadFields {
-			var currentPreloadConditions []interface{}
+			var currentOptions *InlinePreloadOptions
 
 			// if not preloaded
 			if preloadKey := strings.Join(preloadFields[:idx+1], "."); !preloadedMap[preloadKey] {
 				// assign search conditions to last preload
 				if idx == len(preloadFields)-1 {
-					currentPreloadConditions = preload.conditions
+					currentOptions = preload.options
 				}
 
 				if field, ok := currentModelStruct.StructFieldsByName[preloadField]; ok && field.Relationship != nil && field.Relationship.Kind == "belongs_to" {
 					currentIndex = append(currentIndex, field.StructIndex)
 					currentScope = currentScope.getColumnAsScope(field.Name)
-					currentScope.handleBelongsToInlinePreload(rootScope, scope, []string{}, field, currentIndex, currentPreloadConditions)
+					currentScope.handleBelongsToInlinePreload(rootScope, scope, []string{}, field, currentIndex, currentOptions)
 					currentModelStruct = currentScope.GetModelStruct()
 					preloadedMap[preloadKey] = true
 				} else if currentModelStruct.virtualFields[preloadField] != nil && currentModelStruct.virtualFields[preloadField] != nil {
@@ -84,7 +71,7 @@ func inlinePreload(rootScope, scope *Scope, index [][]int) {
 					currentIndex = append(currentIndex, []int{(vf.StructIndex + 1) * -1})
 					value := reflect.New(vf.ModelStruct.ModelType).Interface()
 					currentScope = currentScope.New(value)
-					currentScope.virtualFieldInlinePreload(rootScope, scope, []string{}, vf, currentIndex, currentPreloadConditions)
+					currentScope.virtualFieldInlinePreload(rootScope, scope, []string{}, vf, currentIndex, currentOptions)
 					currentModelStruct = vf.ModelStruct
 					preloadedMap[preloadKey] = true
 				} else {
@@ -97,42 +84,23 @@ func inlinePreload(rootScope, scope *Scope, index [][]int) {
 }
 
 // handleBelongsToPreload used to preload belongs to associations
-func (scope *Scope) handleBelongsToInlinePreload(rootScope, parentScope *Scope, path []string, field *StructField, index [][]int, conditions []interface{}) {
+func (scope *Scope) handleBelongsToInlinePreload(rootScope, parentScope *Scope, path []string, field *StructField, index [][]int, options *InlinePreloadOptions) {
 	path = append(path, field.Name)
 	var (
-		relation  = field.Relationship
-		query     = make([]string, len(relation.ForeignFieldNames))
-		rqtn      = parentScope.QuotedTableName()
-		qtn       = scope.QuotedTableName()
-		dbName    = rootScope.inlinePreloads.Next(path...)
-		fields    []string
-		innerJoin bool
+		relation = field.Relationship
+		query    = make([]string, len(relation.ForeignFieldNames))
+		rqtn     = parentScope.QuotedTableName()
+		qtn      = scope.QuotedTableName()
+		dbName   = rootScope.inlinePreloads.Next(path...)
 	)
-
-	if len(conditions) > 0 {
-		if ipo, ok := conditions[0].(InlinePreloadOption); ok {
-			innerJoin = ipo.IsInnerJoin()
-			conditions = conditions[1:]
-		}
-
-		for _, c := range conditions {
-			switch ct := c.(type) {
-			case []string:
-				fields = ct
-			}
-		}
-	}
-
 	scope.Search.Table(dbName)
 
 	for i, fk := range relation.ForeignDBNames {
 		query[i] = fmt.Sprintf("%v.%v = %v.%v", dbName, relation.AssociationForeignDBNames[i], rqtn, fk)
 	}
 
-	joinQuery := fmt.Sprintf("JOIN %v AS %v ON ", qtn, dbName) + strings.Join(query, ", ")
-	if !innerJoin {
-		joinQuery = "LEFT " + joinQuery
-	}
+	joinQuery := fmt.Sprintf("%s JOIN %v AS %v ON ", options.Join, qtn, dbName) + strings.Join(query, ", ")
+
 	rootScope.Search.Joins(joinQuery)
 	inlineRelated := &InlinePreloader{
 		ID:        dbName,
@@ -142,54 +110,62 @@ func (scope *Scope) handleBelongsToInlinePreload(rootScope, parentScope *Scope, 
 		Index:     index,
 	}
 
-	if fields != nil {
-		inlineRelated.Fields(fields)
+	if options.Select != nil {
+		inlineRelated.Fields(options.Select)
 	}
 
 	inlineRelated.Apply()
 
 	for _, rf := range inlineRelated.RelationFields {
-		scope.getColumnAsScope(rf.Name).handleBelongsToInlinePreload(rootScope, scope, path, rf, append(index, rf.StructIndex), []interface{}{})
+		scope.getColumnAsScope(rf.Name).handleBelongsToInlinePreload(rootScope, scope, path, rf, append(index, rf.StructIndex), &InlinePreloadOptions{})
 	}
 }
 
 // handleBelongsToPreload used to preload belongs to associations
-func (scope *Scope) virtualFieldInlinePreload(rootScope, parentScope *Scope, path []string, field *VirtualField, index [][]int, conditions []interface{}) {
+func (scope *Scope) virtualFieldInlinePreload(rootScope, parentScope *Scope, path []string, field *VirtualField, index [][]int, options *InlinePreloadOptions) {
 	path = append(path, field.FieldName)
 	var (
-		query     string
-		rqtn      = parentScope.QuotedTableName()
-		qtn       = scope.QuotedTableName()
-		dbName    = rootScope.inlinePreloads.Next(path...)
-		fields    []string
-		innerJoin bool
+		rqtn    = parentScope.QuotedTableName()
+		qtn     = scope.QuotedTableName()
+		dbName  = rootScope.inlinePreloads.Next(path...)
+		builder = &InlinePreloadBuilder{&options.Conditions, &InlinePreloadInfo{RootScope: rootScope, ParentScope: parentScope, Scope: scope}}
 	)
-
-	if len(conditions) > 0 {
-		if ipo, ok := conditions[0].(InlinePreloadOption); ok {
-			innerJoin = ipo.IsInnerJoin()
-			conditions = conditions[1:]
-		}
-
-		for _, c := range conditions {
-			switch ct := c.(type) {
-			case []string:
-				fields = ct
-			}
-		}
-	}
 
 	scope.Fields()
 	scope.Search.Table(dbName)
-	query = fmt.Sprintf("%v.%v = %v.%v", dbName, scope.PrimaryField().DBName, rqtn, parentScope.PrimaryField().DBName)
 
-	joinQuery := fmt.Sprintf("JOIN %v AS %v ON ", qtn, dbName) + query
-
-	if !innerJoin {
-		joinQuery = "LEFT " + joinQuery
+	var fieldDbName string
+	if field.LocalFieldName == "" {
+		fieldDbName = parentScope.PrimaryField().DBName
+	} else {
+		fieldDbName = parentScope.MustFieldByName(field.LocalFieldName).DBName
 	}
 
-	rootScope.Search.Joins(joinQuery)
+	builder.Prepare(func(c *Conditions, query interface{}, args []interface{}, replace func(query interface{}, args ...interface{})) {
+		var replaced bool
+		if f, ok := query.(func(info *InlinePreloadInfo, replace func(query interface{}, args ...interface{}))); ok {
+			builder.InlinePreloadInfo.Conditions = c
+			f(builder.InlinePreloadInfo, func(query interface{}, args ...interface{}) {
+				replace(query, args...)
+				replaced = true
+			})
+		} else if f, ok := query.(func(info *InlinePreloadInfo)); ok {
+			builder.InlinePreloadInfo.Conditions = c
+			f(builder.InlinePreloadInfo)
+		}
+		if !replaced {
+			replace(nil)
+		}
+		builder.InlinePreloadInfo.Conditions = nil
+	})
+
+	builder.Where(fmt.Sprintf("%v.%v = %v.%v", rqtn, fieldDbName, dbName, scope.PrimaryField().DBName))
+
+	where := builder.whereSQL(scope)
+	joinQuery := fmt.Sprintf("%s JOIN %v AS %v ON ", options.Join, qtn, dbName) + where
+
+	rootScope.Search.Joins(joinQuery, builder.Args...)
+
 	inlineRelated := &InlinePreloader{
 		ID:           dbName,
 		scope:        scope,
@@ -198,13 +174,13 @@ func (scope *Scope) virtualFieldInlinePreload(rootScope, parentScope *Scope, pat
 		Index:        index,
 	}
 
-	if fields != nil {
-		inlineRelated.Fields(fields)
+	if options.Select != nil {
+		inlineRelated.Fields(options.Select...)
 	}
 
 	inlineRelated.Apply()
 
 	for _, rf := range inlineRelated.RelationFields {
-		scope.getColumnAsScope(rf.Name).handleBelongsToInlinePreload(rootScope, scope, path, rf, append(index, rf.StructIndex), []interface{}{})
+		scope.getColumnAsScope(rf.Name).handleBelongsToInlinePreload(rootScope, scope, path, rf, append(index, rf.StructIndex), &InlinePreloadOptions{})
 	}
 }

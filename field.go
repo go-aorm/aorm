@@ -12,7 +12,7 @@ type Field struct {
 	*StructField
 	IsBlank bool
 	Field   reflect.Value
-	scaner  *ValueScanner
+	scaner  Scanner
 }
 
 func (field *Field) CallMethodCallbackArgs(name string, object reflect.Value, in []reflect.Value) {
@@ -24,9 +24,13 @@ func (field *Field) CallMethodCallback(name string, object reflect.Value, in ...
 	field.CallMethodCallbackArgs(name, object, in)
 }
 
-func (field *Field) Scaner() *ValueScanner {
+func (field *Field) Scaner(dialect Dialect) Scanner {
 	if field.scaner == nil {
-		field.scaner = NewFieldScanner(field)
+		if field.StructField.Assigner != nil {
+			field.scaner = field.StructField.Assigner.Scaner(dialect, field.Field)
+		} else {
+			field.scaner = NewFieldScanner(field)
+		}
 	}
 	return field.scaner
 }

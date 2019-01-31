@@ -319,7 +319,7 @@ func (association *Association) saveAssociations(values ...interface{}) *Associa
 			}
 		}
 
-		// Assign Fields
+		// Assigner Fields
 		var fieldType = field.Field.Type()
 		var setFieldBackToValue, setSliceFieldBackToValue bool
 		if reflectValue.Type().AssignableTo(fieldType) {

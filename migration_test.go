@@ -225,7 +225,7 @@ type Comment struct {
 	Post    Post
 }
 
-// Scanner
+// Scaner
 type NullValue struct {
 	Id      int64
 	Name    sql.NullString  `sql:"not null"`

@@ -30,7 +30,7 @@ func beforeDeleteCallback(scope *Scope) {
 func auditedForDeleteCallback(scope *Scope) {
 	if _, ok := scope.Get("gorm:deleted_by_column"); !ok {
 		if _, hasDeletedAtField := scope.FieldByName("DeletedAt"); hasDeletedAtField {
-			if user, ok := getCurrentUser(scope); ok {
+			if user, ok := scope.GetCurrentUserID(); ok {
 				if attrs, ok := scope.InstanceGet("gorm:update_attrs"); ok {
 					updateAttrs := attrs.(map[string]interface{})
 					updateAttrs["deleted_by"] = user
@@ -61,14 +61,14 @@ func deleteCallback(scope *Scope) {
 				scope.AddToVars(NowFunc()),
 				addExtraSpaceIfExist(scope.CombinedConditionSql()),
 				addExtraSpaceIfExist(extraOption),
-			)).Exec()
+			)).log(LOG_DELETE).Exec()
 		} else {
 			scope.Raw(fmt.Sprintf(
 				"DELETE FROM %v%v%v",
 				scope.QuotedTableName(),
 				addExtraSpaceIfExist(scope.CombinedConditionSql()),
 				addExtraSpaceIfExist(extraOption),
-			)).Exec()
+			)).log(LOG_DELETE).Exec()
 		}
 	}
 }

@@ -27,6 +27,7 @@ type Scope struct {
 	selectAttrs     *[]string
 	inlinePreloads  *InlinePreloads
 	counter         bool
+	ExecTime        time.Time
 }
 
 // IndirectValue return scope's reflect value's indirect value
@@ -89,6 +90,10 @@ func (scope *Scope) Err(err error) error {
 			err = &QueryError{err, scope.SQL, scope.SQLVars}
 		}
 		scope.db.AddError(err)
+
+		for _, cb := range scope.ErrorCallbacks() {
+			cb(scope, err)
+		}
 	}
 	return err
 }
@@ -96,6 +101,11 @@ func (scope *Scope) Err(err error) error {
 // HasError check if there are any error
 func (scope *Scope) HasError() bool {
 	return scope.db.Error != nil
+}
+
+// Error return error
+func (scope *Scope) Error() error {
+	return scope.db.Error
 }
 
 // Log print log message
@@ -196,6 +206,12 @@ func (scope *Scope) FieldByName(name string) (field *Field, ok bool) {
 		}
 	}
 	return mostMatchedField, mostMatchedField != nil
+}
+
+// MustFieldByName find `aorm.Field` with field name or db name
+func (scope *Scope) MustFieldByName(name string) (field *Field) {
+	field, _ = scope.FieldByName(name)
+	return
 }
 
 // PrimaryFields return scope's primary fields
@@ -325,6 +341,10 @@ func (scope *Scope) AddToVars(value interface{}) string {
 		return exp
 	}
 
+	if assigner := scope.db.GetAssigner(reflect.TypeOf(value)); assigner != nil {
+		value = assigner.Valuer(scope.db.Dialect(), value)
+	}
+
 	scope.SQLVars = append(scope.SQLVars, value)
 
 	if skipBindVar {
@@ -438,16 +458,24 @@ func (scope *Scope) Raw(sql string) *Scope {
 
 // Exec perform generated SQL
 func (scope *Scope) Exec() *Scope {
-	defer scope.trace(NowFunc())
+	scope.ExecResult()
+	return scope
+}
 
+// ExecResult perform generated SQL and return result
+func (scope *Scope) ExecResult() sql.Result {
 	if !scope.HasError() {
+		scope.ExecTime = NowFunc()
+		defer scope.trace(scope.ExecTime)
+		scope.log(LOG_EXEC)
 		if result, err := scope.SQLDB().Exec(scope.SQL, scope.SQLVars...); scope.Err(err) == nil {
 			if count, err := result.RowsAffected(); scope.Err(err) == nil {
 				scope.db.RowsAffected = count
 			}
+			return result
 		}
 	}
-	return scope
+	return nil
 }
 
 // Set set value by name
@@ -611,9 +639,9 @@ func (scope *Scope) scan(rows *sql.Rows, columns []string, fields []*Field, resu
 		for fieldIndex, field := range selectFields {
 			if field.DBName == column {
 				scannerFields[index] = field
-				fs := field.Scaner()
+				fs := field.Scaner(scope.db.dialect)
 				values[index] = fs
-				if !fs.IsPtr {
+				if !fs.IsPtr() {
 					resetFields[index] = field
 				}
 				selectedColumnsMap[column] = fieldIndex
@@ -646,6 +674,10 @@ func (scope *Scope) scan(rows *sql.Rows, columns []string, fields []*Field, resu
 			}
 			if sev, ok := result.(ExtraSelectInterface); ok {
 				sev.SetGormExtraScannedValues(extraResult)
+			}
+
+			for _, cb := range scope.Search.extraSelects.Callbacks {
+				cb(result, extraResult)
 			}
 		}
 		if extraFieldsSize > 0 {
@@ -686,7 +718,15 @@ func (scope *Scope) buildCondition(clause map[string]interface{}, include bool) 
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 		return fmt.Sprintf("(%v.%v %s %v)", quotedTableName, quotedPrimaryKey, equalSQL, value)
 	case KeyInterface:
-		return fmt.Sprintf("(%v.%v %s %v)", quotedTableName, quotedPrimaryKey, equalSQL, scope.AddToVars(value.String()))
+		var (
+			pkfields = scope.PrimaryFields()
+			values   = value.Values()
+		)
+		var s = make([]string, len(pkfields))
+		for i, f := range pkfields {
+			s[i] = fmt.Sprintf("%v.%v = %v", quotedTableName, scope.Quote(f.DBName), scope.AddToVars(values[i]))
+		}
+		return "(" + strings.Join(s, " AND ") + ")"
 	case []int, []int8, []int16, []int32, []int64, []uint, []uint8, []uint16, []uint32, []uint64, []string, []interface{}:
 		if !include && reflect.ValueOf(value).Len() == 0 {
 			return
@@ -808,8 +848,8 @@ func (scope *Scope) buildCondition(clause map[string]interface{}, include bool) 
 	return
 }
 
-func (scope *Scope) buildSelectQuery(clause map[string]interface{}) (str string) {
-	switch value := clause["query"].(type) {
+func (scope *Scope) queryToString(clause interface{}) (str string) {
+	switch value := clause.(type) {
 	case string:
 		str = value
 	case []string:
@@ -817,14 +857,7 @@ func (scope *Scope) buildSelectQuery(clause map[string]interface{}) (str string)
 	case []interface{}:
 		var columns []string
 		for _, arg := range value {
-			switch at := arg.(type) {
-			case string:
-				columns = append(columns, at)
-			case *WithInlineQuery:
-				columns = append(columns, at.Merge(scope))
-			case *Alias:
-				columns = append(columns, at.Expr+" AS "+at.Name)
-			}
+			columns = append(columns, scope.queryToString(arg))
 		}
 		str = strings.Join(columns, ", ")
 	case *WithInlineQuery:
@@ -832,7 +865,11 @@ func (scope *Scope) buildSelectQuery(clause map[string]interface{}) (str string)
 	case *Alias:
 		str = value.Expr + " AS " + value.Name
 	}
+	return
+}
 
+func (scope *Scope) buildSelectQuery(clause map[string]interface{}) (str string) {
+	str = scope.queryToString(clause["query"])
 	args := clause["args"].([]interface{})
 	replacements := []string{}
 	for _, arg := range args {
@@ -938,12 +975,16 @@ func (scope *Scope) selectSQL() (sql string) {
 	}
 	if scope.Search.extraSelects != nil {
 		for _, es := range scope.Search.extraSelects.Items {
-			sql += ", " + scope.buildSelectQuery(map[string]interface{}{"query": es.Query, "args": es.Args})
+			if es.Query != "" {
+				sql += ", " + scope.buildSelectQuery(map[string]interface{}{"query": es.Query, "args": es.Args})
+			}
 		}
 	}
 	if scope.Search.extraSelectsFields != nil {
 		for _, es := range scope.Search.extraSelectsFields.Items {
-			sql += ", " + scope.buildSelectQuery(map[string]interface{}{"query": es.Query, "args": es.Args})
+			if es.Query != "" {
+				sql += ", " + scope.buildSelectQuery(map[string]interface{}{"query": es.Query, "args": es.Args})
+			}
 		}
 	}
 	return
@@ -957,6 +998,9 @@ func (scope *Scope) orderSQL() string {
 	var orders []string
 	for _, order := range scope.Search.orders {
 		if str, ok := order.(string); ok {
+			orders = append(orders, scope.quoteIfPossible(str))
+		} else if iq, ok := order.(*WithInlineQuery); ok {
+			str := iq.Merge(scope)
 			orders = append(orders, scope.quoteIfPossible(str))
 		} else if expr, ok := order.(*expr); ok {
 			exp := expr.expr
@@ -1582,9 +1626,12 @@ func (scope *Scope) hasConditions() bool {
 		len(scope.Search.notConditions) > 0
 }
 
-func (s *Scope) SetVirtualField(fieldName string, value interface{}, options ...map[interface{}]interface{}) *VirtualField {
-	modelStruct := s.New(value).GetModelStruct()
-	vf := s.GetModelStruct().SetVirtualField(fieldName, value, modelStruct)
+func (s *Scope) SetVirtualField(fieldName string, value interface{}, options ...map[interface{}]interface{}) (vf *VirtualField) {
+	if value == nil {
+		value = &VirtualFieldValue{}
+	}
+	ms := s.New(value).GetModelStruct()
+	vf = s.GetModelStruct().SetVirtualField(fieldName, value, ms)
 	for _, options := range options {
 		for key, value := range options {
 			vf.Options[key] = value
@@ -1597,22 +1644,55 @@ func (s *Scope) GetVirtualField(fieldName string) *VirtualField {
 	return s.GetModelStruct().GetVirtualField(fieldName)
 }
 
-func (s *Scope) runQueryRows() (rows *sql.Rows, err error) {
+func (s *Scope) runQueryRows() (rows *sql.Rows) {
+	var err error
+	s.log(LOG_QUERY)
 	if rows, err = s.SQLDB().Query(s.SQL, s.SQLVars...); err != nil {
 		s.Err(err)
+		return nil
 	}
 	return
 }
 
 func (s *Scope) runQueryRow() (row *sql.Row) {
+	s.log(LOG_QUERY)
 	return s.SQLDB().QueryRow(s.SQL, s.SQLVars...)
 }
 
-func (s *Scope) logQuery(key string, query *string) {
-	key = "gorm:" + key + "_logger"
-	if cb, ok := s.Get(key + ":" + s.RealTableName()); ok {
-		cb.(func(query *string, scope *Scope))(query, s)
-	} else if cb, ok := s.Get(key); ok {
-		cb.(func(query *string, scope *Scope))(query, s)
+func (s *Scope) Loggers(set ...bool) (sl *ScopeLoggers, ok bool) {
+	key := scopeLoggerKey(s.RealTableName())
+	if cbsv, ok := s.Get(key); ok {
+		return cbsv.(*ScopeLoggers), true
+	} else if len(set) > 0 && set[0] {
+		sl = &ScopeLoggers{}
+		s.Set(key, sl)
 	}
+	return
+}
+
+func (s *Scope) MustLoggers(set ...bool) (sl *ScopeLoggers) {
+	sl, _ = s.Loggers(set...)
+	return
+}
+
+func (s *Scope) log(action string) *Scope {
+	if sl, ok := s.Loggers(); ok {
+		sl.Call(action, s)
+	}
+	if _, sl, ok := s.db.Loggers(s.RealTableName()); ok {
+		sl.Call(action, s)
+	}
+	DefaultLogger.Call(action, s)
+	return s
+}
+
+func (s *Scope) QueryString() string {
+	return SQLToString(s.SQL, s.SQLVars...)
+}
+
+func (s *Scope) ErrorCallbacks() (callbacks []func(scope *Scope, err error)) {
+	if cbsv, ok := s.Get("gorm:scope_error_callbacks"); ok {
+		callbacks = cbsv.([]func(scope *Scope, err error))
+	}
+	return
 }

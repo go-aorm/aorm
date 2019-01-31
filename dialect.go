@@ -10,6 +10,9 @@ import (
 
 // Dialect interface contains behaviors that differ across SQL database
 type Dialect interface {
+	// Init the dialect
+	Init()
+
 	// GetName get dialect's name
 	GetName() string
 
@@ -50,13 +53,20 @@ type Dialect interface {
 
 	// CurrentDatabase return current database name
 	CurrentDatabase() string
+
+	Assigners() map[reflect.Type]Assigner
+	RegisterAssigner(assigner ...Assigner)
+	GetAssigner(typ reflect.Type) (assigner Assigner)
 }
 
 var dialectsMap = map[string]Dialect{}
 
-func newDialect(name string, db SQLCommon) Dialect {
+func newDialect(name string, db SQLCommon) (dialect Dialect) {
+	defer func() {
+		dialect.Init()
+	}()
 	if value, ok := dialectsMap[name]; ok {
-		dialect := reflect.New(reflect.TypeOf(value).Elem()).Interface().(Dialect)
+		dialect = reflect.New(reflect.TypeOf(value).Elem()).Interface().(Dialect)
 		dialect.SetDB(db)
 		return dialect
 	}
@@ -90,12 +100,14 @@ var ParseFieldStructForDialect = func(field *StructField, dialect Dialect) (fiel
 		reflectType = reflectType.Elem()
 	}
 
+	if dataType == "" && field.Assigner != nil {
+		dataType = field.Assigner.SQLType(dialect)
+	}
+
 	// Get redirected field value
 	fieldValue = reflect.Indirect(reflect.New(reflectType))
 
-	if gormDataType, ok := fieldValue.Interface().(interface {
-		GormDataType(Dialect) string
-	}); ok {
+	if gormDataType, ok := fieldValue.Interface().(FieldDataType); ok {
 		dataType = gormDataType.GormDataType(dialect)
 	}
 

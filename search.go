@@ -33,8 +33,8 @@ type search struct {
 }
 
 type searchPreload struct {
-	schema     string
-	conditions []interface{}
+	schema  string
+	options *InlinePreloadOptions
 }
 
 func (s *search) clone() *search {
@@ -73,7 +73,13 @@ func (s *search) Order(value interface{}, reorder ...bool) *search {
 	}
 
 	if value != nil && value != "" {
-		s.orders = append(s.orders, value)
+		if sl, ok := value.([]interface{}); ok {
+			for _, value := range sl {
+				s.Order(value)
+			}
+		} else {
+			s.orders = append(s.orders, value)
+		}
 	}
 	return s
 }
@@ -90,6 +96,15 @@ func (s *search) ExtraSelect(key string, values []interface{}, query interface{}
 	s.extraSelects.Add(key, values, query, args)
 	return s
 }
+
+func (s *search) ExtraSelectCallback(f ...func(recorde interface{}, data map[string]*ExtraResult)) *search {
+	if s.extraSelects == nil {
+		s.extraSelects = &extraSelects{}
+	}
+	s.extraSelects.Callback(f...)
+	return s
+}
+
 func (s *search) ExtraSelectFields(key string, value interface{}, fields []*StructField, callback func(scope *Scope, record interface{}), query interface{}, args ...interface{}) *search {
 	if s.extraSelectsFields == nil {
 		s.extraSelectsFields = &extraSelectsFields{}
@@ -137,26 +152,38 @@ func (s *search) Joins(query string, values ...interface{}) *search {
 	return s
 }
 
-func (s *search) Preload(schema string, values ...interface{}) *search {
+func (s *search) Preload(schema string, options ...*InlinePreloadOptions) *search {
+	var opt *InlinePreloadOptions
+	if len(options) > 0 {
+		opt = options[0]
+	} else {
+		opt = &InlinePreloadOptions{}
+	}
 	var preloads []searchPreload
 	for _, preload := range s.preload {
 		if preload.schema != schema {
 			preloads = append(preloads, preload)
 		}
 	}
-	preloads = append(preloads, searchPreload{schema, values})
+	preloads = append(preloads, searchPreload{schema, opt})
 	s.preload = preloads
 	return s
 }
 
-func (s *search) InlinePreload(schema string, values ...interface{}) *search {
+func (s *search) InlinePreload(schema string, options ...*InlinePreloadOptions) *search {
+	var opt *InlinePreloadOptions
+	if len(options) > 0 {
+		opt = options[0]
+	} else {
+		opt = &InlinePreloadOptions{}
+	}
 	var preloads []searchPreload
 	for _, preload := range s.inlinePreload {
 		if preload.schema != schema {
 			preloads = append(preloads, preload)
 		}
 	}
-	preloads = append(preloads, searchPreload{schema, values})
+	preloads = append(preloads, searchPreload{schema, opt})
 	s.inlinePreload = preloads
 	return s
 }
@@ -176,11 +203,11 @@ func (s *search) Table(name string) *search {
 	if index := strings.LastIndex(name, " "); index != -1 {
 		s.tableAlias = name[index:]
 		// remove " as ALIAS"
-		name = name[0:index-4]
+		name = name[0 : index-4]
 		// from (select ...) as ALIAS
 		if name[0] == '(' {
 			// without parentesis
-			name = name[1:len(name)-1]
+			name = name[1 : len(name)-1]
 			s.from = name
 			return s
 		}

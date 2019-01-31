@@ -35,7 +35,7 @@ func preloadCallback(scope *Scope) {
 		)
 
 		for idx, preloadField := range preloadFields {
-			var currentPreloadConditions []interface{}
+			var currentOptions *InlinePreloadOptions
 
 			if currentScope == nil {
 				continue
@@ -46,7 +46,7 @@ func preloadCallback(scope *Scope) {
 
 				// assign search conditions to last preload
 				if idx == len(preloadFields)-1 {
-					currentPreloadConditions = preload.conditions
+					currentOptions = preload.options
 				}
 
 				for _, field := range currentFields {
@@ -56,13 +56,13 @@ func preloadCallback(scope *Scope) {
 
 					switch field.Relationship.Kind {
 					case "has_one":
-						currentScope.handleHasOnePreload(field, currentPreloadConditions)
+						currentScope.handleHasOnePreload(field, &currentOptions.Conditions)
 					case "has_many":
-						currentScope.handleHasManyPreload(field, currentPreloadConditions)
+						currentScope.handleHasManyPreload(field, &currentOptions.Conditions)
 					case "belongs_to":
-						currentScope.handleBelongsToPreload(field, currentPreloadConditions)
+						currentScope.handleBelongsToPreload(field, &currentOptions.Conditions)
 					case "many_to_many":
-						currentScope.handleManyToManyPreload(field, currentPreloadConditions)
+						currentScope.handleManyToManyPreload(field, &currentOptions.Conditions)
 					default:
 						scope.Err(errors.New("unsupported relation"))
 					}
@@ -125,7 +125,7 @@ func (scope *Scope) generatePreloadDBWithConditions(conditions []interface{}) (*
 }
 
 // handleHasOnePreload used to preload has one associations
-func (scope *Scope) handleHasOnePreload(field *Field, conditions []interface{}) {
+func (scope *Scope) handleHasOnePreload(field *Field, conditions *Conditions) {
 	relation := field.Relationship
 
 	// get relations's primary keys
@@ -135,7 +135,7 @@ func (scope *Scope) handleHasOnePreload(field *Field, conditions []interface{}) 
 	}
 
 	// preload conditions
-	preloadDB, preloadConditions := scope.generatePreloadDBWithConditions(conditions)
+	preloadDB := conditions.MergeTo(scope.NewDB())
 
 	// find relations
 	query := fmt.Sprintf("%v IN (%v)", toQueryCondition(scope, relation.ForeignDBNames), toQueryMarks(primaryKeys))
@@ -146,7 +146,7 @@ func (scope *Scope) handleHasOnePreload(field *Field, conditions []interface{}) 
 	}
 
 	results := makeSlice(field.Struct.Type)
-	scope.Err(preloadDB.Where(query, values...).Find(results, preloadConditions...).Error)
+	scope.Err(preloadDB.Where(query, values...).Find(results).Error)
 
 	// assign find results
 	var (
@@ -168,13 +168,13 @@ func (scope *Scope) handleHasOnePreload(field *Field, conditions []interface{}) 
 	} else {
 		for i := 0; i < resultsValue.Len(); i++ {
 			result := resultsValue.Index(i)
-			scope.Err(field.Set(result))
+			_ = scope.Err(field.Set(result))
 		}
 	}
 }
 
 // handleHasManyPreload used to preload has many associations
-func (scope *Scope) handleHasManyPreload(field *Field, conditions []interface{}) {
+func (scope *Scope) handleHasManyPreload(field *Field, conditions *Conditions) {
 	relation := field.Relationship
 
 	// get relations's primary keys
@@ -184,7 +184,7 @@ func (scope *Scope) handleHasManyPreload(field *Field, conditions []interface{})
 	}
 
 	// preload conditions
-	preloadDB, preloadConditions := scope.generatePreloadDBWithConditions(conditions)
+	preloadDB := conditions.MergeTo(scope.NewDB())
 
 	// find relations
 	query := fmt.Sprintf("%v IN (%v)", toQueryCondition(scope, relation.ForeignDBNames), toQueryMarks(primaryKeys))
@@ -195,7 +195,7 @@ func (scope *Scope) handleHasManyPreload(field *Field, conditions []interface{})
 	}
 
 	results := makeSlice(field.Struct.Type)
-	scope.Err(preloadDB.Where(query, values...).Find(results, preloadConditions...).Error)
+	scope.Err(preloadDB.Where(query, values...).Find(results).Error)
 
 	// assign find results
 	var (
@@ -222,16 +222,16 @@ func (scope *Scope) handleHasManyPreload(field *Field, conditions []interface{})
 			}
 		}
 	} else {
-		scope.Err(field.Set(resultsValue))
+		_ = scope.Err(field.Set(resultsValue))
 	}
 }
 
 // handleBelongsToPreload used to preload belongs to associations
-func (scope *Scope) handleBelongsToPreload(field *Field, conditions []interface{}) {
+func (scope *Scope) handleBelongsToPreload(field *Field, conditions *Conditions) {
 	relation := field.Relationship
 
 	// preload conditions
-	preloadDB, preloadConditions := scope.generatePreloadDBWithConditions(conditions)
+	preloadDB := conditions.MergeTo(scope.NewDB())
 
 	// get relations's primary keys
 	primaryKeys := scope.getColumnAsArray(relation.ForeignFieldNames, scope.Value)
@@ -241,7 +241,11 @@ func (scope *Scope) handleBelongsToPreload(field *Field, conditions []interface{
 
 	// find relations
 	results := makeSlice(field.Struct.Type)
-	scope.Err(preloadDB.Where(fmt.Sprintf("%v IN (%v)", toQueryCondition(scope, relation.AssociationForeignDBNames), toQueryMarks(primaryKeys)), toQueryValues(primaryKeys)...).Find(results, preloadConditions...).Error)
+	_ = scope.Err(preloadDB.Where(fmt.Sprintf("%v IN (%v)",
+		toQueryCondition(scope, relation.AssociationForeignDBNames),
+		toQueryMarks(primaryKeys)),
+		toQueryValues(primaryKeys)...).
+		Find(results).Error)
 
 	// assign find results
 	var (
@@ -266,7 +270,7 @@ func (scope *Scope) handleBelongsToPreload(field *Field, conditions []interface{
 }
 
 // handleManyToManyPreload used to preload many to many associations
-func (scope *Scope) handleManyToManyPreload(field *Field, conditions []interface{}) {
+func (scope *Scope) handleManyToManyPreload(field *Field, conditions *Conditions) {
 	var (
 		relation         = field.Relationship
 		joinTableHandler = relation.JoinTableHandler
@@ -288,7 +292,7 @@ func (scope *Scope) handleManyToManyPreload(field *Field, conditions []interface
 	}
 
 	// preload conditions
-	preloadDB, preloadConditions := scope.generatePreloadDBWithConditions(conditions)
+	preloadDB := conditions.MergeTo(scope.NewDB())
 
 	// generate query with join table
 	newScope := scope.New(reflect.New(fieldType).Interface())
@@ -299,12 +303,6 @@ func (scope *Scope) handleManyToManyPreload(field *Field, conditions []interface
 	}
 
 	preloadDB = joinTableHandler.JoinWith(joinTableHandler, preloadDB, scope.Value)
-
-	// preload inline conditions
-	if len(preloadConditions) > 0 {
-		preloadDB = preloadDB.Where(preloadConditions[0], preloadConditions[1:]...)
-	}
-
 	rows, err := preloadDB.Rows()
 
 	if scope.Err(err) != nil {

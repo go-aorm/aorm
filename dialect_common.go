@@ -16,11 +16,34 @@ type DefaultForeignKeyNamer struct {
 type commonDialect struct {
 	db SQLCommon
 	DefaultForeignKeyNamer
+	assigners map[reflect.Type]Assigner
 }
 
 func init() {
 	RegisterDialect("common", &commonDialect{})
 }
+
+func (c *commonDialect) Assigners() map[reflect.Type]Assigner {
+	return c.assigners
+}
+
+func (c *commonDialect) RegisterAssigner(assigners ...Assigner) {
+	if c.assigners == nil {
+		c.assigners = map[reflect.Type]Assigner{}
+	}
+	for _, assigner := range assigners {
+		c.assigners[assigner.Type()] = assigner
+	}
+}
+
+func (c *commonDialect) GetAssigner(typ reflect.Type) (assigner Assigner) {
+	if c.assigners != nil {
+		assigner = c.assigners[indirectType(typ)]
+	}
+	return
+}
+
+func (commonDialect) Init() {}
 
 func (commonDialect) GetName() string {
 	return "common"

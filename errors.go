@@ -1,10 +1,7 @@
 package aorm
 
 import (
-	"bytes"
 	"errors"
-	"fmt"
-	"reflect"
 	"strings"
 )
 
@@ -19,6 +16,8 @@ var (
 	ErrCantStartTransaction = errors.New("can't start transaction")
 	// ErrUnaddressable unaddressable value
 	ErrUnaddressable = errors.New("using unaddressable value")
+	// ErrSingleUpdateKey single UPDATE require primary key value
+	ErrSingleUpdateKey = errors.New("Single UPDATE require primary key value.")
 )
 
 // Errors contains all happened errors
@@ -119,19 +118,5 @@ func (e QueryError) Err() error {
 }
 
 func (e QueryError) Error() string {
-	var b bytes.Buffer
-	b.WriteString(e.err.Error() + "\nBEGIN SQL >>\n" + e.SQL + "\n<< END SQL")
-	if len(e.Args) > 0 {
-		b.WriteString("\nSQL Args:\n")
-		for i, arg := range e.Args {
-			typ := reflect.TypeOf(arg)
-			b.WriteString(fmt.Sprintf("  - %v: {%v[%s]}\n", i, indirectType(typ).PkgPath(), typ))
-			argValue := strings.Split(fmt.Sprint(arg), "\n")[0]
-			if len(argValue) > 50 {
-				argValue = argValue[0:50] + " ..."
-			}
-			b.WriteString("    " + argValue)
-		}
-	}
-	return b.String()
+	return e.err.Error() + "\n" + SQLToString(e.SQL, e.Args...)
 }

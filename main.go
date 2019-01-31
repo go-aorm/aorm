@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -29,6 +30,7 @@ type DB struct {
 	callbacks     *Callback
 	dialect       Dialect
 	singularTable bool
+	assigners     *AssignerRegistrator
 }
 
 // Open initialize a new db connection, need to import driver first, e.g:
@@ -225,6 +227,11 @@ func (s *DB) Order(value interface{}, reorder ...bool) *DB {
 	return s.clone().search.Order(value, reorder...).db
 }
 
+// HasOrder returns if order has be specified
+func (s *DB) HasOrder() bool {
+	return s.search.orders != nil
+}
+
 // Select specify fields that you want to retrieve from database when querying, by default, will select all fields;
 // When creating/updating, specify fields that you want to save to database
 func (s *DB) Select(query interface{}, args ...interface{}) *DB {
@@ -234,6 +241,11 @@ func (s *DB) Select(query interface{}, args ...interface{}) *DB {
 // ExtraSelect specify extra fields that you want to retrieve from database when querying
 func (s *DB) ExtraSelect(key string, values []interface{}, query interface{}, args ...interface{}) *DB {
 	return s.clone().search.ExtraSelect(key, values, query, args...).db
+}
+
+// ExtraSelectCalback specify extra select callbacks that you want to retrieve from database when querying
+func (s *DB) ExtraSelectCallback(f ...func(recorde interface{}, data map[string]*ExtraResult)) *DB {
+	return s.clone().search.ExtraSelectCallback(f...).db
 }
 
 // ExtraSelectFields specify extra fields that you want to retrieve from database when querying
@@ -306,7 +318,7 @@ func (s *DB) Attrs(attrs ...interface{}) *DB {
 	return s.clone().search.Attrs(attrs...).db
 }
 
-// Assign assign result with argument regardless it is found or not with `FirstOrInit` https://jinzhu.github.io/gorm/crud.html#firstorinit or `FirstOrCreate` https://jinzhu.github.io/gorm/crud.html#firstorcreate
+// Assigner assign result with argument regardless it is found or not with `FirstOrInit` https://jinzhu.github.io/gorm/crud.html#firstorinit or `FirstOrCreate` https://jinzhu.github.io/gorm/crud.html#firstorcreate
 func (s *DB) Assign(attrs ...interface{}) *DB {
 	return s.clone().search.Assign(attrs...).db
 }
@@ -691,14 +703,14 @@ func (s *DB) Association(column string) *Association {
 
 // Preload preload associations with given conditions
 //    db.Preload("Orders", "state NOT IN (?)", "cancelled").Find(&users)
-func (s *DB) Preload(column string, conditions ...interface{}) *DB {
-	return s.clone().search.Preload(column, conditions...).db
+func (s *DB) Preload(column string, options ...*InlinePreloadOptions) *DB {
+	return s.clone().search.Preload(column, options...).db
 }
 
 // Preload preload associations with given conditions
 //    db.Preload("Orders", "state NOT IN (?)", "cancelled").Find(&users)
-func (s *DB) InlinePreload(column string, conditions ...interface{}) *DB {
-	return s.clone().search.InlinePreload(column, conditions...).db
+func (s *DB) InlinePreload(column string, options ...*InlinePreloadOptions) *DB {
+	return s.clone().search.InlinePreload(column, options...).db
 }
 
 // AutoInlinePreload preload associations
@@ -770,18 +782,13 @@ func (s *DB) SetJoinTableHandler(source interface{}, column string, handler Join
 func (s *DB) AddError(err error) error {
 	if err != nil {
 		if !IsError(ErrRecordNotFound, err) {
-			if len(s.path) > 0 {
-				err = fmt.Errorf("DB{%v}: %v", s.PathString(), err)
-			}
-
 			if s.logMode == 0 {
 				s.print(fileWithLineNum(), err)
 			} else {
 				s.log(err)
 			}
 
-			errors := Errors(s.GetErrors())
-			errors = errors.Add(err)
+			errors := Errors(s.GetErrors()).Add(err)
 			if len(errors) > 1 {
 				err = errors
 			}
@@ -802,6 +809,19 @@ func (s *DB) GetErrors() []error {
 	return []error{}
 }
 
+// ScopeErrorCallback register error callback for scope
+func (s *DB) ScopeErrorCallback(cb func(scope *Scope, err error)) *DB {
+	s = s.clone()
+	key := "gorm:scope_error_callbacks"
+	var callbacks []func(scope *Scope, err error)
+	if v, ok := s.Get(key); ok {
+		callbacks = append(callbacks, v.([]func(scope *Scope, err error))...)
+	}
+	callbacks = append(callbacks, cb)
+	s.Set(key, callbacks)
+	return s
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Private Methods For DB
 ////////////////////////////////////////////////////////////////////////////////
@@ -818,6 +838,7 @@ func (s *DB) clone() *DB {
 		blockGlobalUpdate: s.blockGlobalUpdate,
 		path:              s.path,
 		dialect:           s.dialect,
+		assigners:         s.assigners,
 	}
 
 	for key, value := range s.values {
@@ -933,4 +954,81 @@ func (s *DB) Inside(name ...interface{}) *DB {
 	clone := s.clone()
 	clone.path = append(clone.path, name...)
 	return clone
+}
+
+func (s *DB) RegisterAssigner(assigners ...Assigner) *DB {
+	s = s.clone()
+	if s.assigners == nil {
+		s.assigners = &AssignerRegistrator{}
+	} else {
+		s.assigners = &AssignerRegistrator{s.assigners.data}
+	}
+	s.assigners.Register(assigners...)
+	return s
+}
+
+func (s *DB) GetAssigner(typ reflect.Type) (assigner Assigner) {
+	if s.assigners != nil {
+		assigner = s.assigners.GetAssigner(typ)
+		if assigner != nil {
+			return
+		}
+	}
+	return s.dialect.GetAssigner(typ)
+}
+
+func (s *DB) SetSingleUpdate(v bool) *DB {
+	return s.Set("gorm:single_update", v)
+}
+
+func (s *DB) SingleUpdate() bool {
+	if v, ok := s.values["gorm:single_update"]; !ok || v.(bool) {
+		return true
+	}
+	return false
+}
+
+func (s *DB) Loggers(tableName string, set ...bool) (clone *DB, sl *ScopeLoggers, ok bool) {
+	key := scopeLoggerKey(tableName) + ":global"
+	if cbsv, ok := s.Get(key); ok {
+		return s, cbsv.(*ScopeLoggers), true
+	} else if len(set) > 0 && set[0] {
+		sl = &ScopeLoggers{}
+		return s.Set(key, sl), sl, false
+	}
+	return s, sl, false
+}
+
+func (s *DB) SetCurrentUser(user interface{}) *DB {
+	return s.Set("gorm:current_user", user)
+}
+
+func (s *DB) GetCurrentUser() (user interface{}, ok bool) {
+	return s.Get("gorm:current_user")
+}
+
+func (s *DB) GetCurrentUserID() (id string, ok bool) {
+	var user interface{}
+	var hasUser bool
+
+	user, hasUser = s.GetCurrentUser()
+
+	if !hasUser {
+		return "", false
+	}
+
+	var currentUser string
+	switch ut := user.(type) {
+	case string:
+		return ut, currentUser != ""
+	case uint:
+		return strconv.Itoa(int(ut)), ut != 0
+	default:
+		if primaryField := s.NewScope(user).PrimaryField(); primaryField != nil {
+			currentUser = fmt.Sprintf("%v", primaryField.Field.Interface())
+		} else {
+			currentUser = fmt.Sprintf("%v", user)
+		}
+		return currentUser, true
+	}
 }

@@ -52,11 +52,11 @@ func updateTimeStampForCreateCallback(scope *Scope) {
 	}
 }
 
-// auditedForCreateCallback will set `UpdatedBy` when updating
+// auditedForCreateCallback will set `CreatedByID` when updating
 func auditedForCreateCallback(scope *Scope) {
 	if _, ok := scope.Get("gorm:created_by_column"); !ok {
-		if user, ok := getCurrentUser(scope); ok {
-			scope.SetColumn("CreatedBy", user)
+		if user, ok := scope.GetCurrentUserID(); ok {
+			scope.SetColumn("CreatedByID", user)
 		}
 	}
 }
@@ -64,7 +64,8 @@ func auditedForCreateCallback(scope *Scope) {
 // createCallback the callback used to insert data into database
 func createCallback(scope *Scope) {
 	if !scope.HasError() {
-		defer scope.trace(NowFunc())
+		scope.ExecTime = NowFunc()
+		defer scope.trace(scope.ExecTime)
 
 		var (
 			columns, placeholders        []string
@@ -130,10 +131,8 @@ func createCallback(scope *Scope) {
 
 		// execute create sql
 		if lastInsertIDReturningSuffix == "" || primaryField == nil {
-			if result, err := scope.SQLDB().Exec(scope.SQL, scope.SQLVars...); scope.Err(err) == nil {
-				// set rows affected count
-				scope.db.RowsAffected, _ = result.RowsAffected()
-
+			scope.log(LOG_CREATE)
+			if result := scope.ExecResult(); !scope.HasError() {
 				// set primary value to primary field
 				if primaryField != nil && primaryField.IsBlank {
 					if primaryValue, err := result.LastInsertId(); scope.Err(err) == nil {
@@ -143,7 +142,8 @@ func createCallback(scope *Scope) {
 			}
 		} else {
 			if primaryField.Field.CanAddr() {
-				if err := scope.SQLDB().QueryRow(scope.SQL, scope.SQLVars...).Scan(primaryField.Field.Addr().Interface()); scope.Err(err) == nil {
+				scope.log(LOG_CREATE)
+				if err := scope.runQueryRow().Scan(primaryField.Field.Addr().Interface()); scope.Err(err) == nil {
 					primaryField.IsBlank = false
 					scope.db.RowsAffected = 1
 				}

@@ -55,11 +55,11 @@ func updateTimeStampForUpdateCallback(scope *Scope) {
 	}
 }
 
-// auditedForUpdateCallback will set `UpdatedBy` when updating
+// auditedForUpdateCallback will set `UpdatedByID` when updating
 func auditedForUpdateCallback(scope *Scope) {
 	if _, ok := scope.Get("gorm:updated_by_column"); !ok {
-		if user, ok := getCurrentUser(scope); ok {
-			scope.SetColumn("UpdatedBy", user)
+		if user, ok := scope.GetCurrentUserID(); ok {
+			scope.SetColumn("UpdatedByID", user)
 		}
 	}
 }
@@ -105,6 +105,13 @@ func updateCallback(scope *Scope) {
 		}
 
 		if len(sqls) > 0 {
+			if len(scope.PrimaryFields()) > 0 && scope.PrimaryKeyZero() {
+				if scope.db.SingleUpdate() {
+					_ = scope.Err(ErrSingleUpdateKey)
+					return
+				}
+			}
+
 			query := fmt.Sprintf(
 				"UPDATE %v SET %v%v%v",
 				scope.QuotedTableName(),
@@ -112,8 +119,7 @@ func updateCallback(scope *Scope) {
 				addExtraSpaceIfExist(scope.CombinedConditionSql()),
 				addExtraSpaceIfExist(extraOption),
 			)
-			scope.logQuery("update", &query)
-			scope.Raw(query).Exec()
+			scope.Raw(query).log(LOG_UPDATE).Exec()
 		}
 	}
 }

@@ -20,7 +20,8 @@ func queryCallback(scope *Scope) {
 		return
 	}
 
-	defer scope.trace(NowFunc())
+	scope.ExecTime = NowFunc()
+	defer scope.trace(scope.ExecTime)
 
 	var (
 		isSlice, isPtr bool
@@ -60,7 +61,7 @@ func queryCallback(scope *Scope) {
 			scope.SQL += addExtraSpaceIfExist(fmt.Sprint(str))
 		}
 
-		if rows, err := scope.runQueryRows(); err == nil {
+		if rows := scope.log(LOG_READ).runQueryRows(); !scope.HasError() {
 			defer rows.Close()
 
 			columns, _ := rows.Columns()

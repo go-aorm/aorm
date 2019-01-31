@@ -11,9 +11,10 @@ type extraSelect struct {
 }
 
 type extraSelects struct {
-	Items []*extraSelect
-	Types []reflect.Type
-	Size  int
+	Items     []*extraSelect
+	Types     []reflect.Type
+	Size      int
+	Callbacks []func(recorde interface{}, data map[string]*ExtraResult)
 }
 
 func (es *extraSelects) NewValues() []interface{} {
@@ -22,6 +23,10 @@ func (es *extraSelects) NewValues() []interface{} {
 		r[i] = reflect.New(typ).Interface()
 	}
 	return r
+}
+
+func (es *extraSelects) Callback(f ...func(recorde interface{}, data map[string]*ExtraResult)) {
+	es.Callbacks = append(es.Callbacks, f...)
 }
 
 func (es *extraSelects) Add(key string, values []interface{}, query interface{}, args []interface{}) *extraSelect {
