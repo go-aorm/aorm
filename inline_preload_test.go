@@ -45,5 +45,4 @@ func TestInlinePreloader_GetQuery(t *testing.T) {
 	scope := db.NewScope(&A{})
 	scope.SetVirtualField("B", &B{})
 	aorm.InlinePreloadCallback(scope)
-	println()
 }

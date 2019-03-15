@@ -414,8 +414,12 @@ func SQLToString(query string, args ...interface{}) string {
 		b.WriteString("\nArgs:\n")
 
 		for i, arg := range args {
+			if arg == nil {
+				fmt.Fprintf(&b,"  - %D: <nil>\n", i)
+				continue
+			}
 			typ := reflect.TypeOf(arg)
-			line := fmt.Sprintf("  - %v: %v[%s] ", i, indirectType(typ).PkgPath(), typ)
+			line := fmt.Sprintf("  - %d: %v[%s] ", i, indirectType(typ).PkgPath(), typ)
 			if isNil(reflect.ValueOf(arg)) {
 				b.WriteString(line + "<nil>\n")
 			} else {

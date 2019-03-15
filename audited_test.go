@@ -8,7 +8,7 @@ import (
 )
 
 type AuditedProduct struct {
-	aorm.SoftDeleteAuditedModel
+	aorm.AuditedSDModel
 	Name string
 }
 

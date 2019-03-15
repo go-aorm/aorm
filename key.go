@@ -9,18 +9,31 @@ type KeyInterface interface {
 	fmt.Stringer
 	Values() []interface{}
 	Strings() []string
+	Append(value ...interface{}) KeyInterface
 }
 
 type key struct {
 	values []interface{}
 }
 
+func (key *key) Append(value ...interface{}) KeyInterface {
+	key.values = append(key.values, value...)
+	return key
+}
+
 func (key *key) Strings() []string {
 	var s = make([]string, len(key.values))
 	for i, v := range key.values {
+		if v == nil {
+			continue
+		}
 		switch kt := v.(type) {
 		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-			s[i] = fmt.Sprintf("%d", key)
+			if kt != 0 {
+				s[i] = fmt.Sprintf("%d", key)
+			} else {
+				s[i] = ""
+			}
 		case string:
 			s[i] = kt
 		default:

@@ -476,7 +476,9 @@ func (s *DB) Create(value interface{}) *DB {
 
 // Delete delete value match given conditions, if the value has primary key, then will including the primary key as condition
 func (s *DB) Delete(value interface{}, where ...interface{}) *DB {
-	return s.NewScope(value).inlineCondition(where...).callCallbacks(s.parent.callbacks.deletes).db
+	return s.NewScope(value).
+		inlineCondition(where...).
+		callCallbacks(s.parent.callbacks.deletes).db
 }
 
 // Raw use raw sql as conditions, won't run it unless invoked by other methods
@@ -713,33 +715,66 @@ func (s *DB) InlinePreload(column string, options ...*InlinePreloadOptions) *DB 
 	return s.clone().search.InlinePreload(column, options...).db
 }
 
+// InlinePreloadFields set inline preload fields of value type
+func (s *DB) InlinePreloadFields(value interface{}, fields ...string) *DB {
+	key := InlinePreloadFieldsKeyOf(value)
+	new := map[string]bool{}
+
+	if old, ok := s.Get(key); ok {
+		for k := range old.(map[string]bool) {
+			new[k] = true
+		}
+	}
+
+	for _, f := range fields {
+		if f[0] == '-' {
+			f := f[1:]
+			if _, ok := new[f]; ok {
+				delete(new, f)
+				continue
+			}
+		}
+		new[f] = true
+	}
+
+	return s.Set(key, new)
+}
+
 // AutoInlinePreload preload associations
 func (s *DB) AutoInlinePreload(value interface{}) *DB {
 	modelStruct := s.NewScope(value).GetModelStruct()
-	var clone *DB
-	if ipf, ok := value.(InlinePreloadFields); ok {
-		clone = s.clone()
-		for _, fieldName := range ipf.GetGormInlinePreloadFields() {
-			if f, ok := modelStruct.StructFieldsByName[fieldName]; ok {
-				if f.Relationship != nil {
-					clone.search.InlinePreload(f.Name)
+	var fields []string
+
+	if data, ok := s.Get(InlinePreloadFieldsKeyOf(value)); ok {
+		for k := range data.(map[string]bool) {
+			fields = append(fields, k)
+		}
+	} else {
+		if ipf, ok := value.(InlinePreloadFields); ok {
+			for _, fieldName := range ipf.GetGormInlinePreloadFields() {
+				if f, ok := modelStruct.StructFieldsByName[fieldName]; ok {
+					if f.Relationship != nil {
+						fields = append(fields, f.Name)
+					}
 				}
+			}
+		}
+
+		if modelStruct.virtualFieldsAutoInlinePreload != nil {
+			for _, fieldName := range modelStruct.virtualFieldsAutoInlinePreload {
+				fields = append(fields, fieldName)
 			}
 		}
 	}
 
-	if modelStruct.virtualFieldsAutoInlinePreload != nil {
-		if clone == nil {
-			clone = s.clone()
+	if len(fields) > 0 {
+		clone := s.clone()
+		for _, f := range fields {
+			clone.search.InlinePreload(f)
 		}
-		for _, fieldName := range modelStruct.virtualFieldsAutoInlinePreload {
-			clone.search.InlinePreload(fieldName)
-		}
-	}
-
-	if clone != nil {
 		return clone
 	}
+
 	return s
 }
 
@@ -783,9 +818,9 @@ func (s *DB) AddError(err error) error {
 	if err != nil {
 		if !IsError(ErrRecordNotFound, err) {
 			if s.logMode == 0 {
-				s.print(fileWithLineNum(), err)
+				s.print(fileWithLineNum() + ": " + err.Error())
 			} else {
-				s.log(err)
+				s.log(err.Error())
 			}
 
 			errors := Errors(s.GetErrors()).Add(err)

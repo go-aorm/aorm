@@ -16,7 +16,13 @@ func inlinePreloadCallback(scope *Scope) {
 		return
 	}
 
-	if scope.Search.inlinePreload == nil || scope.HasError() {
+	if scope.HasError() {
+		return
+	}
+
+	scope.AutoInlinePreload()
+
+	if len(scope.Search.inlinePreload) == 0 {
 		return
 	}
 

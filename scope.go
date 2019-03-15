@@ -1224,7 +1224,6 @@ func (scope *Scope) count(value interface{}) *Scope {
 	}
 	scope.Search.ignoreOrderQuery = true
 	scope.counter = true
-	//inlinePreloadCallback(scope)
 	scope.Err(scope.row().Scan(value))
 	return scope
 }

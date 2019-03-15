@@ -3,13 +3,13 @@ package aorm
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Define callbacks for deleting
 func init() {
 	DefaultCallback.Delete().Register("gorm:begin_transaction", beginTransactionCallback)
 	DefaultCallback.Delete().Register("gorm:before_delete", beforeDeleteCallback)
-	DefaultCallback.Delete().Register("gorm:audited", auditedForDeleteCallback)
 	DefaultCallback.Delete().Register("gorm:delete", deleteCallback)
 	DefaultCallback.Delete().Register("gorm:after_delete", afterDeleteCallback)
 	DefaultCallback.Delete().Register("gorm:commit_or_rollback_transaction", commitOrRollbackTransactionCallback)
@@ -26,23 +26,6 @@ func beforeDeleteCallback(scope *Scope) {
 	}
 }
 
-// auditedForDeleteCallback will set `DeletedBy` when soft delete
-func auditedForDeleteCallback(scope *Scope) {
-	if _, ok := scope.Get("gorm:deleted_by_column"); !ok {
-		if _, hasDeletedAtField := scope.FieldByName("DeletedAt"); hasDeletedAtField {
-			if user, ok := scope.GetCurrentUserID(); ok {
-				if attrs, ok := scope.InstanceGet("gorm:update_attrs"); ok {
-					updateAttrs := attrs.(map[string]interface{})
-					updateAttrs["deleted_by"] = user
-					scope.InstanceSet("gorm:update_attrs", updateAttrs)
-				} else {
-					scope.SetColumn("DeletedBy", user)
-				}
-			}
-		}
-	}
-}
-
 // deleteCallback used to delete data from database or set deleted_at to current time (when using with soft delete)
 func deleteCallback(scope *Scope) {
 	if !scope.HasError() {
@@ -51,14 +34,31 @@ func deleteCallback(scope *Scope) {
 			extraOption = fmt.Sprint(str)
 		}
 
-		deletedAtField, hasDeletedAtField := scope.FieldByName("DeletedAt")
+		deletedAtField, hasDeletedAtField := scope.FieldByName(SoftDeleteFieldDeletedAt)
 
 		if !scope.Search.Unscoped && hasDeletedAtField {
+			var (
+				pairs   []string
+				columns = []string{deletedAtField.DBName}
+				values  = []string{scope.AddToVars(NowFunc())}
+			)
+
+			if _, ok := scope.FieldByName(SoftDeleteFieldDeletedByID); ok {
+				if user, ok := scope.GetCurrentUserID(); ok {
+					columns = append(columns, SoftDeletedColumnDeletedByID)
+					values = append(values, scope.AddToVars(user))
+					scope.SetColumn(SoftDeleteFieldDeletedByID, user)
+				}
+			}
+
+			for i, column := range columns {
+				pairs = append(pairs, fmt.Sprintf("%v=%v", scope.Quote(column), values[i]))
+			}
+
 			scope.Raw(fmt.Sprintf(
-				"UPDATE %v SET %v=%v%v%v",
+				"UPDATE %v SET %v%v%v",
 				scope.QuotedTableName(),
-				scope.Quote(deletedAtField.DBName),
-				scope.AddToVars(NowFunc()),
+				strings.Join(pairs, ", "),
 				addExtraSpaceIfExist(scope.CombinedConditionSql()),
 				addExtraSpaceIfExist(extraOption),
 			)).log(LOG_DELETE).Exec()

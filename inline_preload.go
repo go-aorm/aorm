@@ -4,21 +4,22 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 )
 
 type InlinePreloadInfo struct {
 	RootScope, ParentScope, Scope *Scope
-	Preloader *InlinePreloader
-	Conditions *Conditions
+	Preloader                     *InlinePreloader
+	Conditions                    *Conditions
 }
 
 type InlinePreloadOptions struct {
 	Conditions
 	RelatedConditions []interface{}
-	Select     []interface{}
-	Join       JoinType
-	Prepare    func(builder *InlinePreloadBuilder)
+	Select            []interface{}
+	Join              JoinType
+	Prepare           func(builder *InlinePreloadBuilder)
 }
 
 type InlinePreloadBuilder struct {
@@ -234,6 +235,40 @@ func (iq *WithInlineQuery) Merge(scope *Scope) string {
 	return query
 }
 
+func (iq *WithInlineQuery) String() string {
+	return iq.query
+}
+
+type InlineQueries []*WithInlineQuery
+
+func (iq InlineQueries) Join(sep ...string) (result *WithInlineQuery) {
+	var (
+		ok      bool
+		queries []string
+
+		s  = ", "
+		pm = map[string]bool{}
+	)
+	if len(sep) > 0 {
+		s = sep[0]
+	}
+	result = &WithInlineQuery{}
+
+	for _, iq := range iq {
+		for _, p := range iq.paths {
+			if ok, _ = pm[p]; !ok {
+				pm[p] = true
+				result.paths = append(result.paths, p)
+			}
+		}
+		queries = append(queries, iq.query)
+	}
+
+	result.query = strings.Join(queries, s)
+	sort.Strings(result.paths)
+	return
+}
+
 var fieldPathRegex, _ = regexp.Compile(`\{(|\w+(\.\w+)*)\}`)
 
 func PathsFromQuery(query string) (paths []string) {
@@ -255,4 +290,9 @@ func PathsFromQuery(query string) (paths []string) {
 
 type AfterInlinePreloadScanner interface {
 	AormAfterInlinePreloadScan(ip *InlinePreloader, recorde, value interface{})
+}
+
+func InlinePreloadFieldsKeyOf(value interface{}) string {
+	typ := indirectType(reflect.TypeOf(value))
+	return "inline_preload_fields:" + typ.PkgPath() + "." + typ.Name()
 }

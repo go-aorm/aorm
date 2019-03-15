@@ -53,6 +53,7 @@ type ModelStruct struct {
 	virtualFields                  map[string]*VirtualField
 	virtualFieldsByIndex           []*VirtualField
 	virtualFieldsAutoInlinePreload []string
+	softDelete                     bool
 }
 
 func (s *ModelStruct) BeforeRelatedCallback(cb ...func(fromScope *Scope, toScope *Scope, db *DB, fromField *Field) *DB) {
@@ -75,6 +76,10 @@ func (s *ModelStruct) TableName(db *DB) string {
 	}
 
 	return DefaultTableNameHandler(db, s.defaultTableName)
+}
+
+func (s *ModelStruct) IsSoftDelete() bool {
+	return s.softDelete
 }
 
 func (s *ModelStruct) SetVirtualField(fieldName string, value interface{}, modelStruct *ModelStruct) *VirtualField {
@@ -769,6 +774,10 @@ func (scope *Scope) GetModelStruct() *ModelStruct {
 		if field.IsIgnored {
 			modelStruct.IgnoredFieldsCount++
 		}
+	}
+
+	if _, ok := modelStruct.StructFieldsByName[SoftDeleteFieldDeletedAt]; ok {
+		modelStruct.softDelete = true
 	}
 
 	modelStructsMap.Set(reflectType, &modelStruct)

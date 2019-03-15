@@ -69,6 +69,10 @@ func saveBeforeAssociationsCallback(scope *Scope) {
 		autoUpdate, autoCreate, saveReference, relationship := saveAssociationCheck(scope, field)
 
 		if relationship != nil && relationship.Kind == "belongs_to" {
+			// skip ptr fields
+			if field.Struct.Type.Kind() == reflect.Ptr {
+				continue
+			}
 			fieldValue := field.Field.Addr().Interface()
 			newScope := scope.New(fieldValue)
 
