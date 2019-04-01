@@ -228,8 +228,10 @@ func (iq *WithInlineQuery) Merge(scope *Scope) string {
 	for _, p := range iq.paths {
 		if p == "" {
 			query = strings.Replace(query, "{}", tbName, -1)
+		} else if dbName, ok := scope.inlinePreloads.DBNames[p]; ok {
+			query = strings.Replace(query, "{"+p+"}", dbName, -1)
 		} else {
-			query = strings.Replace(query, "{"+p+"}", scope.inlinePreloads.DBNames[p], -1)
+			panic(fmt.Errorf("inline preload db name of %q does not exists", p))
 		}
 	}
 	return query
