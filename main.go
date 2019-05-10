@@ -388,6 +388,13 @@ func (s *DB) Pluck(column string, value interface{}) *DB {
 	return s.NewScope(s.Value).pluck(column, value).db
 }
 
+// PluckFirst used to query single column from a first model result as a map
+//     var createAt time.Time
+//     db.Model(&User{}).Pluck("created_at", &createdAt)
+func (s *DB) PluckFirst(column string, value interface{}) *DB {
+	return s.NewScope(s.Value).pluckFirst(column, value).db
+}
+
 // Count get how many records for a model
 func (s *DB) Count(value interface{}) *DB {
 	return s.NewScope(s.Value).count(value).db

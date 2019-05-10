@@ -94,9 +94,11 @@ var LogFormatter = func(values ...interface{}) (messages []interface{}) {
 			messages = append(messages, values[2:]...)
 			messages = append(messages, "\033[0m")
 		}
+
+		return
 	}
 
-	return
+	return values
 }
 
 type logger interface {

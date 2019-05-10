@@ -127,7 +127,7 @@ func (s *ModelStruct) NonRelatedStructFields() []*StructField {
 	fields := make([]*StructField, len(s.StructFields)-s.IgnoredFieldsCount)
 	var i int
 	for _, field := range s.StructFields {
-		if !field.IsIgnored && field.Relationship == nil {
+		if !field.IsIgnored && field.Relationship == nil && field.TagSettings["FOREIGNKEY"] == "" {
 			fields[i] = field
 			i++
 		}
@@ -807,7 +807,7 @@ func (scope *Scope) GetNonRelatedStructFields() []*StructField {
 
 func parseTagSetting(tags reflect.StructTag) map[string]string {
 	setting := map[string]string{}
-	for _, str := range []string{tags.Get("sql"), tags.Get("gorm")} {
+	for _, str := range []string{tags.Get("sql"), tags.Get("gorm"), tags.Get("aorm")} {
 		tags := strings.Split(str, ";")
 		for _, value := range tags {
 			v := strings.Split(value, ":")

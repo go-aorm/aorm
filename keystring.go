@@ -1,7 +1,7 @@
 package aorm
 
 type KeyStringSerial struct {
-	ID string `gorm:"size:24;primary_key" serial:"yes"`
+	ID string `gorm:"size:24;primary_key;AUTO_INCREMENT"`
 }
 
 func (p *KeyStringSerial) GetID() string {

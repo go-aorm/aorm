@@ -28,15 +28,17 @@ type InlinePreloadBuilder struct {
 }
 
 type InlinePreloader struct {
-	rootScope, scope *Scope
-	DB               *DB
-	ID               string
-	Field            *StructField
-	VirtualField     *VirtualField
-	Index            [][]int
-	RelationFields   []*StructField
-	StructFields     []*StructField
-	Query            string
+	RootScope,
+	Scope,
+	ParentScope *Scope
+	DB             *DB
+	ID             string
+	Field          *StructField
+	VirtualField   *VirtualField
+	Index          [][]int
+	RelationFields []*StructField
+	StructFields   []*StructField
+	Query          string
 }
 
 func (p *InlinePreloader) Fields(fields ...interface{}) {
@@ -47,23 +49,23 @@ func (p *InlinePreloader) Fields(fields ...interface{}) {
 		case []*StructField:
 			p.StructFields = append(p.StructFields, ft...)
 		case string:
-			if field, ok := p.scope.GetModelStruct().StructFieldsByName[ft]; ok {
+			if field, ok := p.Scope.GetModelStruct().StructFieldsByName[ft]; ok {
 				p.StructFields = append(p.StructFields, field)
 			} else {
-				p.rootScope.Err(fmt.Errorf("Struct field %q does not exists.", ft))
+				p.RootScope.Err(fmt.Errorf("Struct field %q does not exists.", ft))
 			}
 		case []string:
 			for _, fieldName := range ft {
 				if fieldName == "*" {
-					for _, field := range p.scope.GetNonRelatedStructFields() {
+					for _, field := range p.Scope.GetNonRelatedStructFields() {
 						p.StructFields = append(p.StructFields, field)
 					}
 					continue
 				}
-				if field, ok := p.scope.GetModelStruct().StructFieldsByName[fieldName]; ok {
+				if field, ok := p.Scope.GetModelStruct().StructFieldsByName[fieldName]; ok {
 					p.StructFields = append(p.StructFields, field)
 				} else {
-					p.rootScope.Err(fmt.Errorf("Struct field %q does not exists.", fieldName))
+					p.RootScope.Err(fmt.Errorf("Struct field %q does not exists.", fieldName))
 				}
 			}
 		}
@@ -82,7 +84,7 @@ func (p *InlinePreloader) Fields(fields ...interface{}) {
 	p.StructFields = newFields
 
 KeyFields:
-	for _, kf := range p.scope.GetModelStruct().PrimaryFields {
+	for _, kf := range p.Scope.GetModelStruct().PrimaryFields {
 		for _, f := range p.StructFields {
 			if f.Name == kf.Name {
 				continue KeyFields
@@ -94,8 +96,13 @@ KeyFields:
 
 func (p *InlinePreloader) GetFields() []*StructField {
 	if len(p.StructFields) == 0 {
-		if irf, ok := p.scope.Value.(InlinePreloadFields); ok {
+		if irf, ok := p.Scope.Value.(InlinePreloadFields); ok {
 			p.Fields(irf.GetGormInlinePreloadFields())
+			if len(p.StructFields) != 0 || len(p.RelationFields) != 0 {
+				return p.StructFields
+			}
+		} else if irf, ok := p.Scope.Value.(InlinePreloadFieldsWithPreloader); ok {
+			p.Fields(irf.GetGormInlinePreloadFields(p.ParentScope))
 			if len(p.StructFields) != 0 || len(p.RelationFields) != 0 {
 				return p.StructFields
 			}
@@ -108,7 +115,7 @@ func (p *InlinePreloader) GetFields() []*StructField {
 				}
 			}
 		}
-		p.StructFields = p.scope.GetNonRelatedStructFields()
+		p.StructFields = p.Scope.GetNonRelatedStructFields()
 	}
 	return p.StructFields
 }
@@ -118,7 +125,7 @@ func (p *InlinePreloader) GetQuery() string {
 		fields := p.GetFields()
 		columns := make([]string, len(fields))
 		for i, f := range fields {
-			columns[i] = fmt.Sprintf("%v.%v", p.ID, p.scope.Quote(f.DBName))
+			columns[i] = fmt.Sprintf("%v.%v", p.ID, p.Scope.Quote(f.DBName))
 		}
 		p.Query = strings.Join(columns, ", ")
 	}
@@ -127,15 +134,15 @@ func (p *InlinePreloader) GetQuery() string {
 
 func (p *InlinePreloader) Apply() {
 	field := p.GetFields()
-	if !p.rootScope.counter {
-		p.rootScope.Search.ExtraSelectFieldsSetter(p.ID, p.Scan, field, p.GetQuery())
+	if !p.RootScope.counter {
+		p.RootScope.Search.ExtraSelectFieldsSetter(p.ID, p.Scan, field, p.GetQuery())
 	}
 }
 
 func (p *InlinePreloader) Scan(result interface{}, values []interface{}, set func(result interface{}, low, hight int) interface{}) {
 	if !values[0].(*ValueScanner).IsNil() {
 		field := reflect.Indirect(reflect.ValueOf(result))
-		ms := p.rootScope.GetModelStruct()
+		ms := p.RootScope.GetModelStruct()
 		for _, pth := range p.Index {
 			if len(pth) == 1 && pth[0] < 0 {
 				i := (pth[0] * -1) - 1
@@ -177,6 +184,10 @@ func (p *InlinePreloader) Scan(result interface{}, values []interface{}, set fun
 
 type InlinePreloadFields interface {
 	GetGormInlinePreloadFields() []string
+}
+
+type InlinePreloadFieldsWithPreloader interface {
+	GetGormInlinePreloadFields(scope *Scope) []string
 }
 
 type InlinePreloads struct {

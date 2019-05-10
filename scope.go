@@ -1074,7 +1074,7 @@ func (scope *Scope) inlineCondition(values ...interface{}) *Scope {
 func (scope *Scope) callCallbacks(funcs []*func(s *Scope)) *Scope {
 	for _, f := range funcs {
 		(*f)(scope)
-		if scope.skipLeft {
+		if scope.skipLeft || scope.HasError() {
 			break
 		}
 	}
@@ -1208,6 +1208,31 @@ func (scope *Scope) pluck(column string, value interface{}) *Scope {
 
 		if err := rows.Err(); err != nil {
 			scope.Err(err)
+		}
+	}
+	return scope
+}
+
+func (scope *Scope) pluckFirst(column string, value interface{}) *Scope {
+	if query, ok := scope.Search.selects["query"]; !ok || !scope.isQueryForColumn(query, column) {
+		scope.Search.Select(column)
+	}
+
+	scope.Search.Limit(1)
+	rows, err := scope.rows()
+
+	if scope.Err(err) == nil {
+		defer rows.Close()
+		var has bool
+		for rows.Next() {
+			has = true
+			scope.Err(rows.Scan(value))
+			if err := rows.Err(); err != nil {
+				scope.Err(err)
+			}
+		}
+		if !has {
+			scope.Err(ErrRecordNotFound)
 		}
 	}
 	return scope

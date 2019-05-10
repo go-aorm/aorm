@@ -77,7 +77,7 @@ func (f *ValueScanner) Scan(src interface{}) error {
 			f.Data = f.MakePtr()
 		}
 		var err error
-		err = convertAssign(f.Data, src)
+		err = SqlConvertAssign(f.Data, src)
 		if err == nil && f.Set != nil {
 			f.Set(f)
 		}

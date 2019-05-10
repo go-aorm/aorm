@@ -24,6 +24,14 @@ func (s *Scope) AutoInlinePreload() *Scope {
 				}
 			}
 		}
+	} else if ipf, ok := value.(InlinePreloadFieldsWithPreloader); ok {
+		for _, fieldName := range ipf.GetGormInlinePreloadFields(s) {
+			if f, ok := modelStruct.StructFieldsByName[fieldName]; ok {
+				if f.Relationship != nil {
+					s.Search.InlinePreload(f.Name)
+				}
+			}
+		}
 	}
 
 	if modelStruct.virtualFieldsAutoInlinePreload != nil {

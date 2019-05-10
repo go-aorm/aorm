@@ -187,11 +187,9 @@ func keyStringCallback(scope *Scope) {
 
 	pf := scope.PrimaryField()
 
-	if pf != nil && pf.Field.Kind() == reflect.String && pf.Struct.Tag.Get("serial") == "yes" {
-		if pf.Field.String() == "" {
-			v := bson.NewObjectId().String()
-			v = v[13 : len(v)-2]
-			pf.Set(v)
-		}
+	if pf != nil && pf.Field.Kind() == reflect.String && pf.TagSettings["AUTO_INCREMENT"] != "" && pf.Field.String() == "" {
+		v := bson.NewObjectId().String()
+		v = v[13 : len(v)-2]
+		pf.Set(v)
 	}
 }

@@ -66,7 +66,7 @@ func inlinePreload(rootScope, scope *Scope, index [][]int) {
 					currentOptions = preload.options
 				}
 
-				if field, ok := currentModelStruct.StructFieldsByName[preloadField]; ok && field.Relationship != nil && field.Relationship.Kind == "belongs_to" {
+				if field, ok := currentModelStruct.StructFieldsByName[preloadField]; ok && field.Relationship != nil && (field.Relationship.Kind == "belongs_to" || field.Relationship.Kind == "has_one") {
 					currentIndex = append(currentIndex, field.StructIndex)
 					currentScope = currentScope.getColumnAsScope(field.Name)
 					currentScope.handleBelongsToInlinePreload(rootScope, scope, []string{}, field, currentIndex, currentOptions)
@@ -109,11 +109,12 @@ func (scope *Scope) handleBelongsToInlinePreload(rootScope, parentScope *Scope, 
 
 	rootScope.Search.Joins(joinQuery)
 	inlineRelated := &InlinePreloader{
-		ID:        dbName,
-		scope:     scope,
-		rootScope: rootScope,
-		Field:     field,
-		Index:     index,
+		ID:          dbName,
+		Scope:       scope,
+		RootScope:   rootScope,
+		ParentScope: parentScope,
+		Field:       field,
+		Index:       index,
 	}
 
 	if options.Select != nil {
@@ -174,8 +175,9 @@ func (scope *Scope) virtualFieldInlinePreload(rootScope, parentScope *Scope, pat
 
 	inlineRelated := &InlinePreloader{
 		ID:           dbName,
-		scope:        scope,
-		rootScope:    rootScope,
+		ParentScope:  parentScope,
+		Scope:        scope,
+		RootScope:    rootScope,
 		VirtualField: field,
 		Index:        index,
 	}
