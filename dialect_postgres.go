@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,10 +23,14 @@ func (postgres) GetName() string {
 }
 
 func (postgres) BindVar(i int) string {
-	return fmt.Sprintf("$%v", i)
+	return "$" + strconv.Itoa(i)
 }
 
-func (s *postgres) DataTypeOf(field *StructField) string {
+func (postgres) Cast(from, to string) string {
+	return from + "::" + to
+}
+
+func (s *postgres) DataTypeOf(field *FieldStructure) string {
 	var dataValue, sqlType, size, additionalType = ParseFieldStructForDialect(field, s)
 
 	if sqlType == "" {
@@ -46,11 +51,13 @@ func (s *postgres) DataTypeOf(field *StructField) string {
 			} else {
 				sqlType = "bigint"
 			}
-		case reflect.Float32, reflect.Float64:
-			sqlType = "numeric"
+		case reflect.Float32:
+			sqlType = "float4"
+		case reflect.Float64:
+			sqlType = "float8"
 		case reflect.String:
 			if _, ok := field.TagSettings["SIZE"]; !ok {
-				size = 0 // if SIZE haven't been set, use `text` as the default type, as there are no performance different
+				size = 0 // if SIZE haven'T been set, use `text` as the default type, as there are no performance different
 			}
 
 			if size > 0 && size < 65532 {
@@ -78,6 +85,11 @@ func (s *postgres) DataTypeOf(field *StructField) string {
 					sqlType = "jsonb"
 				}
 			}
+		}
+	} else if size > 0 {
+		switch sqlType {
+		case "CHAR", "VARCHAR":
+			sqlType += fmt.Sprintf("(%d)", size)
 		}
 	}
 
@@ -126,6 +138,19 @@ func (s postgres) LastInsertIDReturningSuffix(tableName, key string) string {
 
 func (postgres) SupportLastInsertID() bool {
 	return false
+}
+
+func (d postgres) DuplicateUniqueIndexError(indexes IndexMap, tableName string, sqlErr error) (err error) {
+	msg := sqlErr.Error()
+	if strings.Contains(msg, "duplicate") {
+		if pos := strings.IndexRune(msg, '"'); pos > 0 {
+			index_name := msg[pos+1 : pos+strings.IndexRune(msg[pos+1:], '"')+1]
+			if index := indexes.FromDbName(d, tableName, index_name); index != nil {
+				return &DuplicateUniqueIndexError{index, sqlErr}
+			}
+		}
+	}
+	return sqlErr
 }
 
 func isUUID(value reflect.Value) bool {

@@ -24,7 +24,7 @@ func TestCreateUser(t *testing.T) {
 
 	user := SimpleUser{Name: "user1"}
 	db.Save(&user)
-	db = db.Set("gorm:current_user", user)
+	db = db.Set("aorm:current_user", user)
 
 	product := AuditedProduct{Name: "product1"}
 	db.Save(&product)

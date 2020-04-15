@@ -12,11 +12,9 @@ func InlinePreloadCallback(scope *Scope) {
 
 // inlinePreloadCallback used to preload associations
 func inlinePreloadCallback(scope *Scope) {
-	if _, skip := scope.InstanceGet("gorm:skip_query_callback"); skip {
+	if scope.counter || scope.HasError() || scope.Search.raw {
 		return
-	}
-
-	if scope.HasError() {
+	} else if _, skip := scope.InstanceGet(OptSkipPreload); skip {
 		return
 	}
 
@@ -29,8 +27,8 @@ func inlinePreloadCallback(scope *Scope) {
 	currentScope := scope
 	reflectedValue := reflect.Indirect(reflect.ValueOf(scope.Value))
 
-	if reflectedValue.Kind() == reflect.Slice {
-		reflectedValue = reflect.New(scope.GetModelStruct().ModelType)
+	if IsManyResult(scope.Value) {
+		reflectedValue = reflect.New(scope.Struct().Type)
 		currentScope = scope.New(reflectedValue.Interface())
 		currentScope.Search = scope.Search
 	}
@@ -52,7 +50,7 @@ func inlinePreload(rootScope, scope *Scope, index [][]int) {
 		var (
 			preloadFields      = strings.Split(preload.schema, ".")
 			currentScope       = scope
-			currentModelStruct = scope.GetModelStruct()
+			currentModelStruct = scope.Struct()
 			currentIndex       = index[:]
 		)
 
@@ -66,22 +64,22 @@ func inlinePreload(rootScope, scope *Scope, index [][]int) {
 					currentOptions = preload.options
 				}
 
-				if field, ok := currentModelStruct.StructFieldsByName[preloadField]; ok && field.Relationship != nil && (field.Relationship.Kind == "belongs_to" || field.Relationship.Kind == "has_one") {
+				if field, ok := currentModelStruct.FieldsByName[preloadField]; ok && field.Relationship != nil && (field.Relationship.Kind == "belongs_to" || field.Relationship.Kind == "has_one") {
 					currentIndex = append(currentIndex, field.StructIndex)
-					currentScope = currentScope.getColumnAsScope(field.Name)
+					currentScope = currentScope.ScopeOfField(field.Name)
 					currentScope.handleBelongsToInlinePreload(rootScope, scope, []string{}, field, currentIndex, currentOptions)
-					currentModelStruct = currentScope.GetModelStruct()
+					currentModelStruct = currentScope.Struct()
 					preloadedMap[preloadKey] = true
 				} else if currentModelStruct.virtualFields[preloadField] != nil && currentModelStruct.virtualFields[preloadField] != nil {
 					vf := currentModelStruct.virtualFields[preloadField]
 					currentIndex = append(currentIndex, []int{(vf.StructIndex + 1) * -1})
-					value := reflect.New(vf.ModelStruct.ModelType).Interface()
+					value := reflect.New(vf.ModelStruct.Type).Interface()
 					currentScope = currentScope.New(value)
 					currentScope.virtualFieldInlinePreload(rootScope, scope, []string{}, vf, currentIndex, currentOptions)
 					currentModelStruct = vf.ModelStruct
 					preloadedMap[preloadKey] = true
 				} else {
-					scope.Err(fmt.Errorf("can't inline preload field %s for %s", preloadField, currentModelStruct.ModelType))
+					scope.Err(fmt.Errorf("can'T inline preload field %s for %s", preloadField, currentModelStruct.Type))
 					return
 				}
 			}
@@ -124,7 +122,7 @@ func (scope *Scope) handleBelongsToInlinePreload(rootScope, parentScope *Scope, 
 	inlineRelated.Apply()
 
 	for _, rf := range inlineRelated.RelationFields {
-		scope.getColumnAsScope(rf.Name).handleBelongsToInlinePreload(rootScope, scope, path, rf, append(index, rf.StructIndex), &InlinePreloadOptions{})
+		scope.ScopeOfField(rf.Name).handleBelongsToInlinePreload(rootScope, scope, path, rf, append(index, rf.StructIndex), &InlinePreloadOptions{})
 	}
 }
 
@@ -138,40 +136,41 @@ func (scope *Scope) virtualFieldInlinePreload(rootScope, parentScope *Scope, pat
 		builder = &InlinePreloadBuilder{&options.Conditions, &InlinePreloadInfo{RootScope: rootScope, ParentScope: parentScope, Scope: scope}}
 	)
 
-	scope.Fields()
+	scope.Instance()
 	scope.Search.Table(dbName)
 
-	var fieldDbName string
-	if field.LocalFieldName == "" {
-		fieldDbName = parentScope.PrimaryField().DBName
+	if parentScope.HasPrimaryFields() {
+		var fieldDbName string
+		if field.LocalFieldName == "" {
+			fieldDbName = parentScope.PrimaryField().DBName
+		} else {
+			fieldDbName = parentScope.MustFieldByName(field.LocalFieldName).DBName
+		}
+
+		builder.Prepare(func(c *Conditions, query interface{}, args []interface{}, replace func(query interface{}, args ...interface{})) {
+			var replaced bool
+			if f, ok := query.(func(info *InlinePreloadInfo, replace func(query interface{}, args ...interface{}))); ok {
+				builder.InlinePreloadInfo.Conditions = c
+				f(builder.InlinePreloadInfo, func(query interface{}, args ...interface{}) {
+					replace(query, args...)
+					replaced = true
+				})
+			} else if f, ok := query.(func(info *InlinePreloadInfo)); ok {
+				builder.InlinePreloadInfo.Conditions = c
+				f(builder.InlinePreloadInfo)
+			}
+			builder.InlinePreloadInfo.Conditions = nil
+		})
+
+		builder.Where(fmt.Sprintf("%v.%v = %v.%v", rqtn, fieldDbName, dbName, scope.PrimaryField().DBName))
+
+		where := builder.WhereClause(scope)
+		where.Query = fmt.Sprintf("%s JOIN %v AS %v ON ", options.Join, qtn, dbName) + where.Query
+		rootScope.Search.Joins(where.Query, where.Args...)
 	} else {
-		fieldDbName = parentScope.MustFieldByName(field.LocalFieldName).DBName
+		joinQuery := fmt.Sprintf("%s JOIN %v AS %v ON 1 = 1", options.Join, qtn, dbName)
+		rootScope.Search.Joins(joinQuery, builder.Args...)
 	}
-
-	builder.Prepare(func(c *Conditions, query interface{}, args []interface{}, replace func(query interface{}, args ...interface{})) {
-		var replaced bool
-		if f, ok := query.(func(info *InlinePreloadInfo, replace func(query interface{}, args ...interface{}))); ok {
-			builder.InlinePreloadInfo.Conditions = c
-			f(builder.InlinePreloadInfo, func(query interface{}, args ...interface{}) {
-				replace(query, args...)
-				replaced = true
-			})
-		} else if f, ok := query.(func(info *InlinePreloadInfo)); ok {
-			builder.InlinePreloadInfo.Conditions = c
-			f(builder.InlinePreloadInfo)
-		}
-		if !replaced {
-			replace(nil)
-		}
-		builder.InlinePreloadInfo.Conditions = nil
-	})
-
-	builder.Where(fmt.Sprintf("%v.%v = %v.%v", rqtn, fieldDbName, dbName, scope.PrimaryField().DBName))
-
-	where := builder.whereSQL(scope)
-	joinQuery := fmt.Sprintf("%s JOIN %v AS %v ON ", options.Join, qtn, dbName) + where
-
-	rootScope.Search.Joins(joinQuery, builder.Args...)
 
 	inlineRelated := &InlinePreloader{
 		ID:           dbName,
@@ -189,6 +188,6 @@ func (scope *Scope) virtualFieldInlinePreload(rootScope, parentScope *Scope, pat
 	inlineRelated.Apply()
 
 	for _, rf := range inlineRelated.RelationFields {
-		scope.getColumnAsScope(rf.Name).handleBelongsToInlinePreload(rootScope, scope, path, rf, append(index, rf.StructIndex), &InlinePreloadOptions{})
+		scope.ScopeOfField(rf.Name).handleBelongsToInlinePreload(rootScope, scope, path, rf, append(index, rf.StructIndex), &InlinePreloadOptions{})
 	}
 }

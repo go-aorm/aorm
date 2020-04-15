@@ -3,9 +3,8 @@ package aorm
 import "reflect"
 
 type extraSelect struct {
+	Clause
 	key    string
-	Query  interface{}
-	Args   []interface{}
 	Values []interface{}
 	Ptrs   []bool
 }
@@ -39,7 +38,7 @@ func (es *extraSelects) Add(key string, values []interface{}, query interface{},
 		}
 		types[i] = reflect.Indirect(elem).Type()
 	}
-	s := &extraSelect{key, query, args, values, ptrs}
+	s := &extraSelect{Clause{query, args}, key, values, ptrs}
 	es.Types = append(es.Types, types...)
 	es.Items = append(es.Items, s)
 	es.Size = len(es.Types)
@@ -61,21 +60,15 @@ func (er *ExtraResult) Get(name string) (v interface{}, ok bool) {
 	return
 }
 
-type ExtraSelectInterface interface {
-	SetGormExtraScannedValues(extra map[string]*ExtraResult)
-	GetGormExtraScannedValue(name string) (result *ExtraResult, ok bool)
-	GetGormExtraScannedValues() map[string]*ExtraResult
-}
-
 type ExtraSelectModel struct {
 	ExtraScannedValues map[string]*ExtraResult `sql:"-"`
 }
 
-func (es *ExtraSelectModel) SetGormExtraScannedValues(extra map[string]*ExtraResult) {
+func (es *ExtraSelectModel) SetAormExtraScannedValues(extra map[string]*ExtraResult) {
 	es.ExtraScannedValues = extra
 }
 
-func (es *ExtraSelectModel) GetGormExtraScannedValue(name string) (result *ExtraResult, ok bool) {
+func (es *ExtraSelectModel) GetAormExtraScannedValue(name string) (result *ExtraResult, ok bool) {
 	if es.ExtraScannedValues == nil {
 		return
 	}
@@ -83,7 +76,7 @@ func (es *ExtraSelectModel) GetGormExtraScannedValue(name string) (result *Extra
 	return
 }
 
-func (es *ExtraSelectModel) GetGormExtraScannedValues() map[string]*ExtraResult {
+func (es *ExtraSelectModel) GetAormExtraScannedValues() map[string]*ExtraResult {
 	if es.ExtraScannedValues == nil {
 		es.ExtraScannedValues = make(map[string]*ExtraResult)
 	}

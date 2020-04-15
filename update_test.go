@@ -97,7 +97,7 @@ func TestUpdateWithNoStdPrimaryKeyAndDefaultValues(t *testing.T) {
 	DB.Save(&animal).Update("From", "a nice place") // The name field shoul be untouched
 	DB.First(&animal, animal.Counter)
 	if animal.Name != "galeone" {
-		t.Errorf("Name fields shouldn't be changed if untouched, but got %v", animal.Name)
+		t.Errorf("Name fields shouldn'T be changed if untouched, but got %v", animal.Name)
 	}
 
 	// When changing a field with a default value, the change must occur

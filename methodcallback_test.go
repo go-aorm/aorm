@@ -70,12 +70,12 @@ func (image *Media) Value() (driver.Value, error) {
 }
 
 func (image *Media) AfterScan(scope *aorm.Scope, field *aorm.Field) {
-	image.fieldName, image.model = &field.StructField.Name, scope.Value.(interface {
+	image.fieldName, image.model = &field.StructField.Name, scope.Val.(interface {
 		GetID() int
 	})
 	baseUrl, _ := scope.DB().Get("base_url")
 	image.baseUrl = baseUrl.(*string)
-	image.modelType = reflect.TypeOf(scope.Value)
+	image.modelType = reflect.TypeOf(scope.Val)
 	for image.modelType.Kind() == reflect.Ptr {
 		image.modelType = image.modelType.Elem()
 	}
@@ -87,12 +87,12 @@ func (image *Media) URL() string {
 }
 
 type User struct {
-	ID        int
+	BID        int
 	MainImage Media
 }
 
 func (user *User) GetID() int {
-	return user.ID
+	return user.BID
 }
 
 func main() {
@@ -113,12 +113,12 @@ func main() {
 	db_ := db.Where("id = ?", 1).First(&model)
 	if db_.RecordNotFound() {
 		db.Save(&User{MainImage: Media{Name: "picture.jpg"}})
-		err = db.Where("id = ?", 1).First(&model).Error
+		err = db.Where("id = ?", 1).First(&model).error
 		if err != nil {
 			panic(err)
 		}
-	} else if db_.Error != nil {
-		panic(db_.Error)
+	} else if db_.error != nil {
+		panic(db_.error)
 	}
 
 	println("Media URL:", model.MainImage.URL())

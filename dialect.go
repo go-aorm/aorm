@@ -6,67 +6,18 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+
+	"github.com/pkg/errors"
 )
 
-// Dialect interface contains behaviors that differ across SQL database
-type Dialect interface {
-	// Init the dialect
-	Init()
+var dialectsMap = map[string]Dialector{}
 
-	// GetName get dialect's name
-	GetName() string
-
-	// SetDB set db for dialect
-	SetDB(db SQLCommon)
-
-	// BindVar return the placeholder for actual values in SQL statements, in many dbs it is "?", Postgres using $1
-	BindVar(i int) string
-	// Quote quotes field name to avoid SQL parsing exceptions by using a reserved word as a field name
-	Quote(key string) string
-	// DataTypeOf return data's sql type
-	DataTypeOf(field *StructField) string
-
-	// HasIndex check has index or not
-	HasIndex(tableName string, indexName string) bool
-	// HasForeignKey check has foreign key or not
-	HasForeignKey(tableName string, foreignKeyName string) bool
-	// RemoveIndex remove index
-	RemoveIndex(tableName string, indexName string) error
-	// HasTable check has table or not
-	HasTable(tableName string) bool
-	// HasColumn check has column or not
-	HasColumn(tableName string, columnName string) bool
-	// ModifyColumn modify column's type
-	ModifyColumn(tableName string, columnName string, typ string) error
-
-	// LimitAndOffsetSQL return generated SQL with Limit and Offset, as mssql has special case
-	LimitAndOffsetSQL(limit, offset interface{}) string
-	// SelectFromDummyTable return select values, for most dbs, `SELECT values` just works, mysql needs `SELECT value FROM DUAL`
-	SelectFromDummyTable() string
-	// LastInsertIdReturningSuffix most dbs support LastInsertId, but postgres needs to use `RETURNING`
-	LastInsertIDReturningSuffix(tableName, columnName string) string
-	// DefaultValueStr
-	DefaultValueStr() string
-
-	// BuildKeyName returns a valid key name (foreign key, index key) for the given table, field and reference
-	BuildKeyName(kind, tableName string, fields ...string) string
-
-	// CurrentDatabase return current database name
-	CurrentDatabase() string
-
-	Assigners() map[reflect.Type]Assigner
-	RegisterAssigner(assigner ...Assigner)
-	GetAssigner(typ reflect.Type) (assigner Assigner)
-}
-
-var dialectsMap = map[string]Dialect{}
-
-func newDialect(name string, db SQLCommon) (dialect Dialect) {
+func newDialect(name string, db SQLCommon) (dialect Dialector) {
 	defer func() {
 		dialect.Init()
 	}()
 	if value, ok := dialectsMap[name]; ok {
-		dialect = reflect.New(reflect.TypeOf(value).Elem()).Interface().(Dialect)
+		dialect = reflect.New(reflect.TypeOf(value).Elem()).Interface().(Dialector)
 		dialect.SetDB(db)
 		return dialect
 	}
@@ -78,26 +29,49 @@ func newDialect(name string, db SQLCommon) (dialect Dialect) {
 }
 
 // RegisterDialect register new dialect
-func RegisterDialect(name string, dialect Dialect) {
+func RegisterDialect(name string, dialect Dialector) {
 	dialectsMap[name] = dialect
 }
 
 // GetDialect gets the dialect for the specified dialect name
-func GetDialect(name string) (dialect Dialect, ok bool) {
+func GetDialect(name string) (dialect Dialector, ok bool) {
 	dialect, ok = dialectsMap[name]
 	return
 }
 
+// MustGetDialect gets the dialect for the specified dialect name
+func MustGetDialect(name string) (dialect Dialector) {
+	var ok bool
+	if dialect, ok = dialectsMap[name]; !ok {
+		panic(errors.New(fmt.Sprintf("dialect %q is not registered", name)))
+	}
+	return
+}
+
+type FieldStructure struct {
+	Type         reflect.Type
+	TagSettings  map[string]string
+	Assigner     Assigner
+	IsPrimaryKey bool
+}
+
 // ParseFieldStructForDialect get field's sql data type
-var ParseFieldStructForDialect = func(field *StructField, dialect Dialect) (fieldValue reflect.Value, sqlType string, size int, additionalType string) {
+var ParseFieldStructForDialect = func(field *FieldStructure, dialect Dialector) (fieldValue reflect.Value, sqlType string, size int, additionalType string) {
 	// Get redirected field type
 	var (
-		reflectType = field.Struct.Type
+		reflectType = field.Type
 		dataType    = field.TagSettings["TYPE"]
 	)
 
 	for reflectType.Kind() == reflect.Ptr {
 		reflectType = reflectType.Elem()
+	}
+
+	if dataType != "" {
+		switch reflectType.Kind() {
+		case reflect.String:
+			dataType = AbbrToTextType(dataType)
+		}
 	}
 
 	if dataType == "" && field.Assigner != nil {
@@ -107,8 +81,8 @@ var ParseFieldStructForDialect = func(field *StructField, dialect Dialect) (fiel
 	// Get redirected field value
 	fieldValue = reflect.Indirect(reflect.New(reflectType))
 
-	if gormDataType, ok := fieldValue.Interface().(FieldDataType); ok {
-		dataType = gormDataType.GormDataType(dialect)
+	if dataTyper, ok := fieldValue.Interface().(DbDataTyper); ok {
+		dataType = dataTyper.AormDataType(dialect)
 	}
 
 	// Get scanner's real value
@@ -126,6 +100,8 @@ var ParseFieldStructForDialect = func(field *StructField, dialect Dialect) (fiel
 	// Default Size
 	if num, ok := field.TagSettings["SIZE"]; ok {
 		size, _ = strconv.Atoi(num)
+	} else if sizer, ok := field.Assigner.(SQLSizer); ok {
+		size = sizer.SQLSize(dialect)
 	} else {
 		size = 255
 	}
@@ -133,13 +109,16 @@ var ParseFieldStructForDialect = func(field *StructField, dialect Dialect) (fiel
 	// Default type from tag setting
 	additionalType = field.TagSettings["NOT NULL"] + " " + field.TagSettings["UNIQUE"]
 	if value, ok := field.TagSettings["DEFAULT"]; ok {
-		additionalType = additionalType + " DEFAULT " + value
+		// not default expression
+		if value != "DEFAULT" {
+			additionalType = additionalType + " DEFAULT " + value
+		}
 	}
 
 	return fieldValue, dataType, size, strings.TrimSpace(additionalType)
 }
 
-func currentDatabaseAndTable(dialect Dialect, tableName string) (string, string) {
+func currentDatabaseAndTable(dialect Dialector, tableName string) (string, string) {
 	if strings.Contains(tableName, ".") {
 		splitStrings := strings.SplitN(tableName, ".", 2)
 		return splitStrings[0], splitStrings[1]

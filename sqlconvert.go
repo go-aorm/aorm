@@ -1,4 +1,4 @@
-//go:generate go run build-hooks/pre-build/export-sql-funcs/cli/main.go
+//go:generate sh -c "echo 'package sql\n\nvar (\n\tGithubComMoisespsenaGoAormConvertAssign = convertAssign\n\tGithubComMoisespsenaGoAormConvertAssignRows = convertAssignRows\n)' > \"$GOROOT/src/database/sql/GithubComMoisespsenaGoAorm.go\""
 
 package aorm
 

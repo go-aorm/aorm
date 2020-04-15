@@ -64,7 +64,7 @@ func TestBelongsTo(t *testing.T) {
 	DB.Model(&post).Association("Category").Append(&category2)
 
 	if category2.ID == 0 {
-		t.Errorf("Category should has ID when created with Append")
+		t.Errorf("Category should has BID when created with Append")
 	}
 
 	var category21 Category
@@ -85,7 +85,7 @@ func TestBelongsTo(t *testing.T) {
 	DB.Model(&post).Association("Category").Replace(&category3)
 
 	if category3.ID == 0 {
-		t.Errorf("Category should has ID when created with Replace")
+		t.Errorf("Category should has BID when created with Replace")
 	}
 
 	var category31 Category
@@ -167,7 +167,7 @@ func TestBelongsTo(t *testing.T) {
 		t.Errorf("Post's category count should be 0 after the category has been deleted, but got %v", count)
 	}
 
-	if err := DB.Model(&post).Association("Category").Find(&Category{}).Error; err == nil {
+	if err := DB.Model(&post).Association("Category").Find(&Category{}).error; err == nil {
 		t.Errorf("Post's category is not findable after Delete")
 	}
 
@@ -175,7 +175,7 @@ func TestBelongsTo(t *testing.T) {
 		t.Errorf("Post's category count should be 1 when query with Unscoped, but got %v", count)
 	}
 
-	if err := DB.Unscoped().Model(&post).Association("Category").Find(&Category{}).Error; err != nil {
+	if err := DB.Unscoped().Model(&post).Association("Category").Find(&Category{}).error; err != nil {
 		t.Errorf("Post's category should be findable when query with Unscoped, got %v", err)
 	}
 }
@@ -188,14 +188,14 @@ func TestBelongsToOverrideForeignKey1(t *testing.T) {
 
 	type User struct {
 		aorm.Model
-		Profile      Profile `gorm:"ForeignKey:ProfileRefer"`
+		Profile      Profile `aorm:"ForeignKey:ProfileRefer"`
 		ProfileRefer int
 	}
 
 	if relation, ok := DB.NewScope(&User{}).FieldByName("Profile"); ok {
 		if relation.Relationship.Kind != "belongs_to" ||
 			!reflect.DeepEqual(relation.Relationship.ForeignFieldNames, []string{"ProfileRefer"}) ||
-			!reflect.DeepEqual(relation.Relationship.AssociationForeignFieldNames, []string{"ID"}) {
+			!reflect.DeepEqual(relation.Relationship.AssociationForeignFieldNames, []string{"BID"}) {
 			t.Errorf("Override belongs to foreign key with tag")
 		}
 	}
@@ -210,7 +210,7 @@ func TestBelongsToOverrideForeignKey2(t *testing.T) {
 
 	type User struct {
 		aorm.Model
-		Profile   Profile `gorm:"ForeignKey:ProfileID;AssociationForeignKey:Refer"`
+		Profile   Profile `aorm:"ForeignKey:ProfileID;AssociationForeignKey:Refer"`
 		ProfileID int
 	}
 
@@ -263,7 +263,7 @@ func TestHasOne(t *testing.T) {
 	DB.Model(&user).Association("CreditCard").Append(&creditcard2)
 
 	if creditcard2.ID == 0 {
-		t.Errorf("Creditcard should has ID when created with Append")
+		t.Errorf("Creditcard should has BID when created with Append")
 	}
 
 	var creditcard21 CreditCard
@@ -283,7 +283,7 @@ func TestHasOne(t *testing.T) {
 	DB.Model(&user).Association("CreditCard").Replace(&creditcard3)
 
 	if creditcard3.ID == 0 {
-		t.Errorf("Creditcard should has ID when created with Replace")
+		t.Errorf("Creditcard should has BID when created with Replace")
 	}
 
 	var creditcard31 CreditCard
@@ -356,7 +356,7 @@ func TestHasOne(t *testing.T) {
 		t.Errorf("User's credit card count should be 0 after credit card deleted, but got %v", count)
 	}
 
-	if err := DB.Model(&user).Association("CreditCard").Find(&CreditCard{}).Error; err == nil {
+	if err := DB.Model(&user).Association("CreditCard").Find(&CreditCard{}).error; err == nil {
 		t.Errorf("User's creditcard is not findable after Delete")
 	}
 
@@ -364,7 +364,7 @@ func TestHasOne(t *testing.T) {
 		t.Errorf("User's credit card count should be 1 when query with Unscoped, but got %v", count)
 	}
 
-	if err := DB.Unscoped().Model(&user).Association("CreditCard").Find(&CreditCard{}).Error; err != nil {
+	if err := DB.Unscoped().Model(&user).Association("CreditCard").Find(&CreditCard{}).error; err != nil {
 		t.Errorf("User's creditcard should be findable when query with Unscoped, got %v", err)
 	}
 }
@@ -378,13 +378,13 @@ func TestHasOneOverrideForeignKey1(t *testing.T) {
 
 	type User struct {
 		aorm.Model
-		Profile Profile `gorm:"ForeignKey:UserRefer"`
+		Profile Profile `aorm:"ForeignKey:UserRefer"`
 	}
 
 	if relation, ok := DB.NewScope(&User{}).FieldByName("Profile"); ok {
 		if relation.Relationship.Kind != "has_one" ||
 			!reflect.DeepEqual(relation.Relationship.ForeignFieldNames, []string{"UserRefer"}) ||
-			!reflect.DeepEqual(relation.Relationship.AssociationForeignFieldNames, []string{"ID"}) {
+			!reflect.DeepEqual(relation.Relationship.AssociationForeignFieldNames, []string{"BID"}) {
 			t.Errorf("Override belongs to foreign key with tag")
 		}
 	}
@@ -400,7 +400,7 @@ func TestHasOneOverrideForeignKey2(t *testing.T) {
 	type User struct {
 		aorm.Model
 		Refer   string
-		Profile Profile `gorm:"ForeignKey:UserID;AssociationForeignKey:Refer"`
+		Profile Profile `aorm:"ForeignKey:UserID;AssociationForeignKey:Refer"`
 	}
 
 	if relation, ok := DB.NewScope(&User{}).FieldByName("Profile"); ok {
@@ -560,13 +560,13 @@ func TestHasManyOverrideForeignKey1(t *testing.T) {
 
 	type User struct {
 		aorm.Model
-		Profile []Profile `gorm:"ForeignKey:UserRefer"`
+		Profile []Profile `aorm:"ForeignKey:UserRefer"`
 	}
 
 	if relation, ok := DB.NewScope(&User{}).FieldByName("Profile"); ok {
 		if relation.Relationship.Kind != "has_many" ||
 			!reflect.DeepEqual(relation.Relationship.ForeignFieldNames, []string{"UserRefer"}) ||
-			!reflect.DeepEqual(relation.Relationship.AssociationForeignFieldNames, []string{"ID"}) {
+			!reflect.DeepEqual(relation.Relationship.AssociationForeignFieldNames, []string{"BID"}) {
 			t.Errorf("Override belongs to foreign key with tag")
 		}
 	}
@@ -582,7 +582,7 @@ func TestHasManyOverrideForeignKey2(t *testing.T) {
 	type User struct {
 		aorm.Model
 		Refer   string
-		Profile []Profile `gorm:"ForeignKey:UserID;AssociationForeignKey:Refer"`
+		Profile []Profile `aorm:"ForeignKey:UserID;AssociationForeignKey:Refer"`
 	}
 
 	if relation, ok := DB.NewScope(&User{}).FieldByName("Profile"); ok {
@@ -843,7 +843,7 @@ func TestForeignKey(t *testing.T) {
 }
 
 func testForeignKey(t *testing.T, source interface{}, sourceFieldName string, target interface{}, targetFieldName string) {
-	if dialect := os.Getenv("GORM_DIALECT"); dialect == "" || dialect == "sqlite" {
+	if dialect := os.Getenv("AORM_DIALECT"); dialect == "" || dialect == "sqlite" {
 		// sqlite does not support ADD CONSTRAINT in ALTER TABLE
 		return
 	}
@@ -866,11 +866,11 @@ func testForeignKey(t *testing.T, source interface{}, sourceFieldName string, ta
 }
 
 func TestLongForeignKey(t *testing.T) {
-	testForeignKey(t, &NotSoLongTableName{}, "ReallyLongThingID", &ReallyLongTableNameToTestMySQLNameLengthLimit{}, "ID")
+	testForeignKey(t, &NotSoLongTableName{}, "ReallyLongThingID", &ReallyLongTableNameToTestMySQLNameLengthLimit{}, "BID")
 }
 
 func TestLongForeignKeyWithShortDest(t *testing.T) {
-	testForeignKey(t, &ReallyLongThingThatReferencesShort{}, "ShortID", &Short{}, "ID")
+	testForeignKey(t, &ReallyLongThingThatReferencesShort{}, "ShortID", &Short{}, "BID")
 }
 
 func TestHasManyChildrenWithOneStruct(t *testing.T) {
@@ -895,7 +895,7 @@ func TestAutoSaveBelongsToAssociation(t *testing.T) {
 		aorm.Model
 		Name      string
 		CompanyID uint
-		Company   Company `gorm:"association_autoupdate:false;association_autocreate:false;"`
+		Company   Company `aorm:"association_autoupdate:false;association_autocreate:false;"`
 	}
 
 	DB.Where("name = ?", "auto_save_association").Delete(&Company{})
@@ -907,7 +907,7 @@ func TestAutoSaveBelongsToAssociation(t *testing.T) {
 		t.Errorf("Company auto_save_association should not have been saved when autosave is false")
 	}
 
-	// if foreign key is set, this should be saved even if association isn't
+	// if foreign key is set, this should be saved even if association isn'T
 	company := Company{Name: "auto_save_association"}
 	DB.Save(&company)
 
@@ -925,13 +925,13 @@ func TestAutoSaveBelongsToAssociation(t *testing.T) {
 	}
 
 	user2 := User{Name: "jinzhu_2", Company: Company{Name: "auto_save_association_2"}}
-	DB.Set("gorm:association_autocreate", true).Save(&user2)
+	DB.Set("aorm:association_autocreate", true).Save(&user2)
 	if DB.Where("name = ?", "auto_save_association_2").First(&Company{}).RecordNotFound() {
 		t.Errorf("Company auto_save_association_2 should been created when autocreate is true")
 	}
 
 	user2.Company.Name = "auto_save_association_2_newname"
-	DB.Set("gorm:association_autoupdate", true).Save(&user2)
+	DB.Set("aorm:association_autoupdate", true).Save(&user2)
 
 	if DB.Where("name = ?", "auto_save_association_2_newname").First(&Company{}).RecordNotFound() {
 		t.Errorf("Company should been updated")
@@ -948,7 +948,7 @@ func TestAutoSaveHasOneAssociation(t *testing.T) {
 	type User struct {
 		aorm.Model
 		Name    string
-		Company Company `gorm:"association_autoupdate:false;association_autocreate:false;"`
+		Company Company `aorm:"association_autoupdate:false;association_autocreate:false;"`
 	}
 
 	DB.Where("name = ?", "auto_save_has_one_association").Delete(&Company{})
@@ -981,14 +981,14 @@ func TestAutoSaveHasOneAssociation(t *testing.T) {
 	}
 
 	company.Name = "auto_save_has_one_association_2_new_name"
-	DB.Set("gorm:association_autoupdate", true).Save(&user)
+	DB.Set("aorm:association_autoupdate", true).Save(&user)
 
 	if DB.Where("name = ? AND user_id = ?", "auto_save_has_one_association_new_name", user.ID).First(&Company{}).RecordNotFound() {
 		t.Errorf("Company should been updated")
 	}
 
 	user2 := User{Name: "jinzhu_2", Company: Company{Name: "auto_save_has_one_association_2"}}
-	DB.Set("gorm:association_autocreate", true).Save(&user2)
+	DB.Set("aorm:association_autocreate", true).Save(&user2)
 	if DB.Where("name = ?", "auto_save_has_one_association_2").First(&Company{}).RecordNotFound() {
 		t.Errorf("Company auto_save_has_one_association_2 should been created when autocreate is true")
 	}
@@ -1003,7 +1003,7 @@ func TestAutoSaveMany2ManyAssociation(t *testing.T) {
 	type User struct {
 		aorm.Model
 		Name      string
-		Companies []Company `gorm:"many2many:user_companies;association_autoupdate:false;association_autocreate:false;"`
+		Companies []Company `aorm:"many2many:user_companies;association_autoupdate:false;association_autocreate:false;"`
 	}
 
 	DB.AutoMigrate(&Company{}, &User{})
@@ -1034,7 +1034,7 @@ func TestAutoSaveMany2ManyAssociation(t *testing.T) {
 		t.Errorf("Relationship should been saved")
 	}
 
-	DB.Set("gorm:association_autoupdate", true).Set("gorm:association_autocreate", true).Save(&user)
+	DB.Set("aorm:association_autoupdate", true).Set("aorm:association_autocreate", true).Save(&user)
 
 	if DB.Where("name = ?", "auto_save_m2m_association_new_name").First(&Company{}).RecordNotFound() {
 		t.Errorf("Company should been updated")

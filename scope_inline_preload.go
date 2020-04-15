@@ -1,9 +1,22 @@
 package aorm
 
-import "reflect"
+import (
+	"fmt"
+	"reflect"
+)
 
 // AutoInlinePreload preload associations
 func (s *Scope) AutoInlinePreload() *Scope {
+	if s.Value == nil {
+		return s
+	}
+	if _, skip := s.InstanceGet(OptSkipPreload); skip {
+		return s
+	}
+	if _, skip := s.Get(OptSkipPreload); skip {
+		return s
+	}
+
 	key := InlinePreloadFieldsKeyOf(s.Value)
 
 	if data, ok := s.Get(key); ok {
@@ -13,29 +26,39 @@ func (s *Scope) AutoInlinePreload() *Scope {
 		return s
 	}
 
-	modelStruct := s.GetModelStruct()
+	modelStruct := s.Struct()
 
-	value := reflect.New(modelStruct.ModelType).Interface()
+	value := reflect.New(modelStruct.Type).Interface()
 	if ipf, ok := value.(InlinePreloadFields); ok {
-		for _, fieldName := range ipf.GetGormInlinePreloadFields() {
-			if f, ok := modelStruct.StructFieldsByName[fieldName]; ok {
+		for _, fieldName := range ipf.GetAormInlinePreloadFields() {
+			if f, ok := modelStruct.FieldsByName[fieldName]; ok {
 				if f.Relationship != nil {
 					s.Search.InlinePreload(f.Name)
 				}
+			} else if fieldName != "*" {
+				panic(fmt.Errorf("Field %s#%s does not exists", modelStruct.Fqn(), fieldName))
 			}
 		}
-	} else if ipf, ok := value.(InlinePreloadFieldsWithPreloader); ok {
-		for _, fieldName := range ipf.GetGormInlinePreloadFields(s) {
-			if f, ok := modelStruct.StructFieldsByName[fieldName]; ok {
+	} else if ipf, ok := value.(InlinePreloadFieldsWithScope); ok {
+		for _, fieldName := range ipf.GetAormInlinePreloadFields(s) {
+			if f, ok := modelStruct.FieldsByName[fieldName]; ok {
 				if f.Relationship != nil {
 					s.Search.InlinePreload(f.Name)
 				}
+			} else if fieldName != "*" {
+				panic(fmt.Errorf("Field %s#%s does not exists", modelStruct.Fqn(), fieldName))
 			}
 		}
 	}
 
 	if modelStruct.virtualFieldsAutoInlinePreload != nil {
+	vfloop:
 		for _, fieldName := range modelStruct.virtualFieldsAutoInlinePreload {
+			for _, prl := range s.Search.inlinePreload {
+				if prl.schema == fieldName {
+					continue vfloop
+				}
+			}
 			s.Search.InlinePreload(fieldName)
 		}
 	}

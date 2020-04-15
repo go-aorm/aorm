@@ -1,27 +1,15 @@
 package aorm
 
-import "strconv"
+import (
+	"github.com/moisespsena-go/bid"
+)
 
-type ModelInterface interface {
-	GetID() string
-	SetID(v string)
-}
-
-// Model base model definition, including fields `ID`, `CreatedAt`, `UpdatedAt`, `DeletedAt`, which could be embedded in your models
+// Model base model definition, including fields `BID`, `CreatedAt`, `UpdatedAt`, `DeletedAt`, which could be embedded in your models
 //    type User struct {
 //      aorm.Model
 //    }
 type Model struct {
-	ID uint `gorm:"primary_key"`
-}
-
-func (m *Model) GetID() string {
-	return strconv.Itoa(int(m.ID))
-}
-
-func (m *Model) SetID(v string) {
-	id, _ := strconv.Atoi(v)
-	m.ID = uint(id)
+	ID bid.BID `aorm:"primary_key;serial"`
 }
 
 type ModelTS struct {

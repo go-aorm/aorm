@@ -3,19 +3,14 @@ package aorm
 import (
 	"fmt"
 	"reflect"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// DefaultForeignKeyNamer contains the default foreign key name generator method
-type DefaultForeignKeyNamer struct {
-}
-
 type commonDialect struct {
 	db SQLCommon
-	DefaultForeignKeyNamer
+	DefaultKeyNamer
 	assigners map[reflect.Type]Assigner
 }
 
@@ -45,6 +40,10 @@ func (c *commonDialect) GetAssigner(typ reflect.Type) (assigner Assigner) {
 
 func (commonDialect) Init() {}
 
+func (commonDialect) Cast(from, to string) string {
+	return "CAST(" + from + "," + to + ")"
+}
+
 func (commonDialect) GetName() string {
 	return "common"
 }
@@ -57,18 +56,18 @@ func (commonDialect) BindVar(i int) string {
 	return "$$$" // ?
 }
 
-func (commonDialect) Quote(key string) string {
-	return fmt.Sprintf(`"%s"`, key)
+func (commonDialect) QuoteChar() rune {
+	return '"'
 }
 
-func (s *commonDialect) fieldCanAutoIncrement(field *StructField) bool {
+func (s *commonDialect) fieldCanAutoIncrement(field *FieldStructure) bool {
 	if value, ok := field.TagSettings["AUTO_INCREMENT"]; ok {
 		return strings.ToLower(value) != "false"
 	}
 	return field.IsPrimaryKey
 }
 
-func (s *commonDialect) DataTypeOf(field *StructField) string {
+func (s *commonDialect) DataTypeOf(field *FieldStructure) string {
 	var dataValue, sqlType, size, additionalType = ParseFieldStructForDialect(field, s)
 
 	if sqlType == "" {
@@ -107,6 +106,11 @@ func (s *commonDialect) DataTypeOf(field *StructField) string {
 					sqlType = "BINARY(65532)"
 				}
 			}
+		}
+	} else if size > 0 {
+		switch sqlType {
+		case "CHAR", "VARCHAR":
+			sqlType += fmt.Sprintf("(%d)", size)
 		}
 	}
 
@@ -186,11 +190,8 @@ func (commonDialect) DefaultValueStr() string {
 	return "DEFAULT VALUES"
 }
 
-// BuildKeyName returns a valid key name (foreign key, index key) for the given table, field and reference
-func (DefaultForeignKeyNamer) BuildKeyName(kind, tableName string, fields ...string) string {
-	keyName := fmt.Sprintf("%s_%s_%s", kind, tableName, strings.Join(fields, "_"))
-	keyName = regexp.MustCompile("[^a-zA-Z0-9]+").ReplaceAllString(keyName, "_")
-	return keyName
+func (d commonDialect) DuplicateUniqueIndexError(_ IndexMap, _ string, sqlErr error) error {
+	return sqlErr
 }
 
 // IsByteArrayOrSlice returns true of the reflected value is an array or slice

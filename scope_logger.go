@@ -85,5 +85,5 @@ func (s *ScopeLoggers) Call(action string, scope *Scope) {
 }
 
 func scopeLoggerKey(realTableName string) string {
-	return "gorm:logger:" + realTableName
+	return "aorm:logger:" + realTableName
 }

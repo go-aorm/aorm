@@ -120,7 +120,7 @@ func TestCustomizedTypePrimaryKey(t *testing.T) {
 
 func TestStringPrimaryKeyForNumericValueStartingWithZero(t *testing.T) {
 	type AddressByZipCode struct {
-		ZipCode string `gorm:"primary_key"`
+		ZipCode string `aorm:"primary_key"`
 		Address string
 	}
 
@@ -371,7 +371,7 @@ func TestSelect(t *testing.T) {
 	var user User
 	DB.Where("name = ?", user1.Name).Select("name").Find(&user)
 	if user.Id != 0 {
-		t.Errorf("Should not have ID because only selected name, %+v", user.Id)
+		t.Errorf("Should not have BID because only selected name, %+v", user.Id)
 	}
 
 	if user.Name != user1.Name {
@@ -740,11 +740,11 @@ func TestPluckWithSelect(t *testing.T) {
 	var (
 		user              = User{Name: "matematik7_pluck_with_select", Age: 25}
 		combinedName      = fmt.Sprintf("%v%v", user.Name, user.Age)
-		combineUserAgeSQL = fmt.Sprintf("concat(%v, %v)", DB.Dialect().Quote("name"), DB.Dialect().Quote("age"))
+		combineUserAgeSQL = fmt.Sprintf("concat(%v, %v)", aorm.Quote(DB.Dialect(), "name"), aorm.Quote(DB.Dialect(), "age"))
 	)
 
 	if dialect := DB.Dialect().GetName(); dialect == "sqlite3" {
-		combineUserAgeSQL = fmt.Sprintf("(%v || %v)", DB.Dialect().Quote("name"), DB.Dialect().Quote("age"))
+		combineUserAgeSQL = fmt.Sprintf("(%v || %v)", aorm.Quote(DB.Dialect(), "name"), aorm.Quote(DB.Dialect(), "age"))
 	}
 
 	DB.Save(&user)
@@ -760,7 +760,7 @@ func TestPluckWithSelect(t *testing.T) {
 		t.Errorf("Should correctly pluck with select, got: %s", userAges)
 	}
 
-	selectStr = combineUserAgeSQL + fmt.Sprintf(" as %v", DB.Dialect().Quote("user_age"))
+	selectStr = combineUserAgeSQL + fmt.Sprintf(" as %v", aorm.Quote(DB.Dialect(), "user_age"))
 	userAges = userAges[:0]
 	err = DB.Model(&User{}).Where("age = ?", 25).Select(selectStr).Pluck("user_age", &userAges).Error
 	if err != nil {

@@ -37,12 +37,12 @@ func init() {
 }
 
 func OpenTestConnection() (db *aorm.DB, err error) {
-	dbDSN := os.Getenv("GORM_DSN")
-	switch os.Getenv("GORM_DIALECT") {
+	dbDSN := os.Getenv("AORM_DSN")
+	switch os.Getenv("AORM_DIALECT") {
 	case "mysql":
 		fmt.Println("testing mysql...")
 		if dbDSN == "" {
-			dbDSN = "gorm:gorm@tcp(localhost:9910)/gorm?charset=utf8&parseTime=True"
+			dbDSN = "aorm:gorm@tcp(localhost:9910)/gorm?charset=utf8&parseTime=True"
 		}
 		db, err = aorm.Open("mysql", dbDSN)
 	case "postgres":
@@ -59,7 +59,7 @@ func OpenTestConnection() (db *aorm.DB, err error) {
 		// sp_changedbowner 'gorm';
 		fmt.Println("testing mssql...")
 		if dbDSN == "" {
-			dbDSN = "sqlserver://gorm:LoremIpsum86@localhost:9930?database=gorm"
+			dbDSN = "sqlserver://aorm:LoremIpsum86@localhost:9930?database=gorm"
 		}
 		db, err = aorm.Open("mssql", dbDSN)
 	default:
@@ -98,7 +98,7 @@ func TestOpen_ReturnsError_WithBadArgs(t *testing.T) {
 
 func TestStringPrimaryKey(t *testing.T) {
 	type UUIDStruct struct {
-		ID   string `gorm:"primary_key"`
+		ID   string `aorm:"primary_key"`
 		Name string
 	}
 	DB.DropTable(&UUIDStruct{})
@@ -324,7 +324,7 @@ func TestNullValues(t *testing.T) {
 		Height:  sql.NullFloat64{Float64: 100.11, Valid: true},
 		AddedAt: NullTime{Time: time.Now(), Valid: false},
 	}).Error; err == nil {
-		t.Errorf("Can't save because of name can't be null")
+		t.Errorf("Can'T save because of name can'T be null")
 	}
 }
 
@@ -577,7 +577,7 @@ func TestJoins(t *testing.T) {
 	var users5 []User
 	db5 := DB.Joins("join emails on emails.user_id = users.id AND emails.email = ?", "join1@example.com").Joins("join credit_cards on credit_cards.user_id = users.id AND credit_cards.number = ?", "411111111111").Where(User{Id: 1}).Where(Email{Id: 1}).Not(Email{Id: 10}).First(&users5)
 	if db5.Error != nil {
-		t.Errorf("Should not raise error for join where identical fields in different tables. Error: %s", db5.Error.Error())
+		t.Errorf("Should not raise error for join where identical fields in different tables. error: %s", db5.Error.Error())
 	}
 }
 
@@ -710,7 +710,7 @@ func TestQueryBuilderSubselectInHaving(t *testing.T) {
 
 func DialectHasTzSupport() bool {
 	// NB: mssql and FoundationDB do not support time zones.
-	if dialect := os.Getenv("GORM_DIALECT"); dialect == "foundation" {
+	if dialect := os.Getenv("AORM_DIALECT"); dialect == "foundation" {
 		return false
 	}
 	return true
@@ -728,7 +728,7 @@ func TestTimeWithZone(t *testing.T) {
 		user := User{Name: name, Birthday: &vtime}
 
 		if !DialectHasTzSupport() {
-			// If our driver dialect doesn't support TZ's, just use UTC for everything here.
+			// If our driver dialect doesn'T support TZ's, just use UTC for everything here.
 			utcBirthday := user.Birthday.UTC()
 			user.Birthday = &utcBirthday
 		}
@@ -763,7 +763,7 @@ func TestHstore(t *testing.T) {
 		Bulk postgres.Hstore
 	}
 
-	if dialect := os.Getenv("GORM_DIALECT"); dialect != "postgres" {
+	if dialect := os.Getenv("AORM_DIALECT"); dialect != "postgres" {
 		t.Skip()
 	}
 
@@ -838,7 +838,7 @@ func TestCompatibilityMode(t *testing.T) {
 
 func TestOpenExistingDB(t *testing.T) {
 	DB.Save(&User{Name: "jnfeinstein"})
-	dialect := os.Getenv("GORM_DIALECT")
+	dialect := os.Getenv("AORM_DIALECT")
 
 	db, err := aorm.Open(dialect, DB.DB())
 	if err != nil {

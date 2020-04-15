@@ -9,20 +9,20 @@ import (
 type Cat struct {
 	Id   int
 	Name string
-	Toy  Toy `gorm:"polymorphic:Owner;"`
+	Toy  Toy `aorm:"polymorphic:Owner;"`
 }
 
 type Dog struct {
 	Id   int
 	Name string
-	Toys []Toy `gorm:"polymorphic:Owner;"`
+	Toys []Toy `aorm:"polymorphic:Owner;"`
 }
 
 type Hamster struct {
 	Id           int
 	Name         string
-	PreferredToy Toy `gorm:"polymorphic:Owner;polymorphic_value:hamster_preferred"`
-	OtherToy     Toy `gorm:"polymorphic:Owner;polymorphic_value:hamster_other"`
+	PreferredToy Toy `aorm:"polymorphic:Owner;polymorphic_value:hamster_preferred"`
+	OtherToy     Toy `aorm:"polymorphic:Owner;polymorphic_value:hamster_other"`
 }
 
 type Toy struct {
@@ -232,10 +232,10 @@ func TestNamedPolymorphic(t *testing.T) {
 	hamster2 := Hamster{}
 	DB.Preload("PreferredToy").Preload("OtherToy").Find(&hamster2, hamster.Id)
 	if hamster2.PreferredToy.Id != hamster.PreferredToy.Id || hamster2.PreferredToy.Name != hamster.PreferredToy.Name {
-		t.Errorf("Hamster's preferred toy couldn't be preloaded")
+		t.Errorf("Hamster's preferred toy couldn'T be preloaded")
 	}
 	if hamster2.OtherToy.Id != hamster.OtherToy.Id || hamster2.OtherToy.Name != hamster.OtherToy.Name {
-		t.Errorf("Hamster's other toy couldn't be preloaded")
+		t.Errorf("Hamster's other toy couldn'T be preloaded")
 	}
 
 	// clear to omit Toy.Id in count

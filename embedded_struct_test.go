@@ -16,13 +16,13 @@ type Author struct {
 
 type HNPost struct {
 	BasePost
-	Author  `gorm:"embedded_prefix:user_"` // Embedded struct
+	Author  `aorm:"embedded_prefix:user_"` // Embedded struct
 	Upvotes int32
 }
 
 type EngadgetPost struct {
-	BasePost BasePost `gorm:"embedded"`
-	Author   Author   `gorm:"embedded;embedded_prefix:author_"` // Embedded struct
+	BasePost BasePost `aorm:"embedded"`
+	Author   Author   `aorm:"embedded;embedded_prefix:author_"` // Embedded struct
 	ImageUrl string
 }
 
@@ -65,9 +65,9 @@ func TestSaveAndQueryEmbeddedStruct(t *testing.T) {
 		t.Errorf("primary key with embedded struct should works")
 	}
 
-	for _, field := range DB.NewScope(&HNPost{}).Fields() {
+	for _, field := range DB.NewScope(&HNPost{}).Instance() {
 		if field.Name == "BasePost" {
-			t.Errorf("scope Fields should not contain embedded struct")
+			t.Errorf("scope Instance should not contain embedded struct")
 		}
 	}
 }

@@ -2,9 +2,10 @@ package aorm
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
 	"reflect"
+
+	"github.com/pkg/errors"
 )
 
 // Field model field definition
@@ -15,33 +16,33 @@ type Field struct {
 	scaner  Scanner
 }
 
-func (field *Field) CallMethodCallbackArgs(name string, object reflect.Value, in []reflect.Value) {
-	field.StructField.CallMethodCallbackArgs(name, object, append([]reflect.Value{reflect.ValueOf(field)}, in...))
+func (this *Field) CallMethodCallbackArgs(name string, object reflect.Value, in []reflect.Value) {
+	this.StructField.CallMethodCallbackArgs(name, object, append([]reflect.Value{reflect.ValueOf(this)}, in...))
 }
 
 // Call the method callback
-func (field *Field) CallMethodCallback(name string, object reflect.Value, in ...reflect.Value) {
-	field.CallMethodCallbackArgs(name, object, in)
+func (this *Field) CallMethodCallback(name string, object reflect.Value, in ...reflect.Value) {
+	this.CallMethodCallbackArgs(name, object, in)
 }
 
-func (field *Field) Scaner(dialect Dialect) Scanner {
-	if field.scaner == nil {
-		if field.StructField.Assigner != nil {
-			field.scaner = field.StructField.Assigner.Scaner(dialect, field.Field)
+func (this *Field) Scaner(dialect Dialector) Scanner {
+	if this.scaner == nil {
+		if this.StructField.Assigner != nil {
+			this.scaner = this.StructField.Assigner.Scaner(dialect, this.Field)
 		} else {
-			field.scaner = NewFieldScanner(field)
+			this.scaner = NewFieldScanner(this)
 		}
 	}
-	return field.scaner
+	return this.scaner
 }
 
 // Set set a value to the field
-func (field *Field) Set(value interface{}) (err error) {
-	if !field.Field.IsValid() {
+func (this *Field) Set(value interface{}) (err error) {
+	if !this.Field.IsValid() {
 		return errors.New("field value not valid")
 	}
 
-	if !field.Field.CanAddr() {
+	if !this.Field.CanAddr() {
 		return ErrUnaddressable
 	}
 
@@ -50,14 +51,14 @@ func (field *Field) Set(value interface{}) (err error) {
 		reflectValue = reflect.ValueOf(value)
 	}
 
-	fieldValue := field.Field
+	fieldValue := this.Field
 	if reflectValue.IsValid() {
 		if reflectValue.Type().ConvertibleTo(fieldValue.Type()) {
 			fieldValue.Set(reflectValue.Convert(fieldValue.Type()))
 		} else {
 			if fieldValue.Kind() == reflect.Ptr {
 				if fieldValue.IsNil() {
-					fieldValue.Set(reflect.New(field.Struct.Type.Elem()))
+					fieldValue.Set(reflect.New(this.Struct.Type.Elem()))
 				}
 				fieldValue = fieldValue.Elem()
 			}
@@ -67,13 +68,17 @@ func (field *Field) Set(value interface{}) (err error) {
 			} else if scanner, ok := fieldValue.Addr().Interface().(sql.Scanner); ok {
 				err = scanner.Scan(reflectValue.Interface())
 			} else {
-				err = fmt.Errorf("could not convert argument of field %s from %s to %s", field.Name, reflectValue.Type(), fieldValue.Type())
+				err = fmt.Errorf("could not convert argument of field %s from %s to %s", this.Name, reflectValue.Type(), fieldValue.Type())
 			}
 		}
 	} else {
-		field.Field.Set(reflect.Zero(field.Field.Type()))
+		this.Field.Set(reflect.Zero(this.Field.Type()))
 	}
 
-	field.IsBlank = isBlank(field.Field)
+	this.IsBlank = IsBlank(this.Field)
 	return err
+}
+
+func (this *Field) ID() (IDValuer, error) {
+	return this.StructField.IDOf(this.Field)
 }

@@ -35,14 +35,14 @@ func turnOffIdentityInsert(scope *aorm.Scope) {
 }
 
 func init() {
-	aorm.DefaultCallback.Create().After("gorm:begin_transaction").Register("mssql:set_identity_insert", setIdentityInsert)
-	aorm.DefaultCallback.Create().Before("gorm:commit_or_rollback_transaction").Register("mssql:turn_off_identity_insert", turnOffIdentityInsert)
+	aorm.DefaultCallback.Create().After("aorm:begin_transaction").Register("mssql:set_identity_insert", setIdentityInsert)
+	aorm.DefaultCallback.Create().Before("aorm:commit_or_rollback_transaction").Register("mssql:turn_off_identity_insert", turnOffIdentityInsert)
 	aorm.RegisterDialect("mssql", &mssql{})
 }
 
 type mssql struct {
 	db aorm.SQLCommon
-	aorm.DefaultForeignKeyNamer
+	aorm.DefaultKeyNamer
 }
 
 func (mssql) GetName() string {
@@ -102,6 +102,11 @@ func (s *mssql) DataTypeOf(field *aorm.StructField) string {
 					sqlType = "varbinary(max)"
 				}
 			}
+		}
+	} else if size > 0 {
+		switch sqlType {
+		case "CHAR", "VARCHAR":
+			sqlType += fmt.Sprintf("(%d)", size)
 		}
 	}
 
@@ -198,7 +203,7 @@ func (mssql) DefaultValueStr() string {
 	return "DEFAULT VALUES"
 }
 
-func currentDatabaseAndTable(dialect aorm.Dialect, tableName string) (string, string) {
+func currentDatabaseAndTable(dialect aorm.Dialector, tableName string) (string, string) {
 	if strings.Contains(tableName, ".") {
 		splitStrings := strings.SplitN(tableName, ".", 2)
 		return splitStrings[0], splitStrings[1]

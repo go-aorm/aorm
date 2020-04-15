@@ -8,16 +8,16 @@ import (
 )
 
 type CustomizeColumn struct {
-	ID   int64      `gorm:"column:mapped_id; primary_key:yes"`
-	Name string     `gorm:"column:mapped_name"`
-	Date *time.Time `gorm:"column:mapped_time"`
+	ID   int64      `aorm:"column:mapped_id; primary_key:yes"`
+	Name string     `aorm:"column:mapped_name"`
+	Date *time.Time `aorm:"column:mapped_time"`
 }
 
 // Make sure an ignored field does not interfere with another field's custom
 // column name that matches the ignored field.
 type CustomColumnAndIgnoredFieldClash struct {
 	Body    string `sql:"-"`
-	RawBody string `gorm:"column:body"`
+	RawBody string `aorm:"column:body"`
 }
 
 func TestCustomizeColumn(t *testing.T) {
@@ -31,8 +31,8 @@ func TestCustomizeColumn(t *testing.T) {
 	}
 
 	col = "mapped_id"
-	if scope.PrimaryKey() != col {
-		t.Errorf("CustomizeColumn should have primary key %s, but got %q", col, scope.PrimaryKey())
+	if scope.PrimaryKeyDbName() != col {
+		t.Errorf("CustomizeColumn should have primary key %s, but got %q", col, scope.PrimaryKeyDbName())
 	}
 
 	expected := "foo"
@@ -68,12 +68,12 @@ func TestCustomColumnAndIgnoredFieldClash(t *testing.T) {
 }
 
 type CustomizePerson struct {
-	IdPerson string             `gorm:"column:idPerson;primary_key:true"`
-	Accounts []CustomizeAccount `gorm:"many2many:PersonAccount;associationforeignkey:idAccount;foreignkey:idPerson"`
+	IdPerson string             `aorm:"column:idPerson;primary_key:true"`
+	Accounts []CustomizeAccount `aorm:"many2many:PersonAccount;associationforeignkey:idAccount;foreignkey:idPerson"`
 }
 
 type CustomizeAccount struct {
-	IdAccount string `gorm:"column:idAccount;primary_key:true"`
+	IdAccount string `aorm:"column:idAccount;primary_key:true"`
 	Name      string
 }
 
@@ -114,7 +114,7 @@ type CustomizeUser struct {
 type CustomizeInvitation struct {
 	aorm.Model
 	Address string         `sql:"column:invitation"`
-	Person  *CustomizeUser `gorm:"foreignkey:Email;associationforeignkey:invitation"`
+	Person  *CustomizeUser `aorm:"foreignkey:Email;associationforeignkey:invitation"`
 }
 
 func TestOneToOneWithCustomizedColumn(t *testing.T) {
@@ -144,16 +144,16 @@ func TestOneToOneWithCustomizedColumn(t *testing.T) {
 type PromotionDiscount struct {
 	aorm.Model
 	Name     string
-	Coupons  []*PromotionCoupon `gorm:"ForeignKey:discount_id"`
-	Rule     *PromotionRule     `gorm:"ForeignKey:discount_id"`
-	Benefits []PromotionBenefit `gorm:"ForeignKey:promotion_id"`
+	Coupons  []*PromotionCoupon `aorm:"ForeignKey:discount_id"`
+	Rule     *PromotionRule     `aorm:"ForeignKey:discount_id"`
+	Benefits []PromotionBenefit `aorm:"ForeignKey:promotion_id"`
 }
 
 type PromotionBenefit struct {
 	aorm.Model
 	Name        string
 	PromotionID uint
-	Discount    PromotionDiscount `gorm:"ForeignKey:promotion_id"`
+	Discount    PromotionDiscount `aorm:"ForeignKey:promotion_id"`
 }
 
 type PromotionCoupon struct {
@@ -283,7 +283,7 @@ func TestBelongsToWithPartialCustomizedColumn(t *testing.T) {
 type SelfReferencingUser struct {
 	aorm.Model
 	Name    string
-	Friends []*SelfReferencingUser `gorm:"many2many:UserFriends;association_jointable_foreignkey:friend_id"`
+	Friends []*SelfReferencingUser `aorm:"many2many:UserFriends;association_jointable_foreignkey:friend_id"`
 }
 
 func TestSelfReferencingMany2ManyColumn(t *testing.T) {

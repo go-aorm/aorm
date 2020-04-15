@@ -1,7 +1,7 @@
 package aorm
 
 import (
-	"fmt"
+	"github.com/moisespsena-go/bid"
 )
 
 const (
@@ -39,50 +39,45 @@ var (
 		AuditedColumnUpdatedAt,
 	}, TimestampColumns...)
 
-	AuditedFields  = append(append([]string{}, AuditedFieldsByID...), AuditedFieldsAt...)
-	AuditedColumns = append(append([]string{}, AuditedColumnsByID...), AuditedColumnsAt...)
+	AuditedFields  = append(AuditedFieldsByID, AuditedFieldsAt...)
+	AuditedColumns = append(AuditedColumnsByID, AuditedColumnsAt...)
 )
 
-type Auditor interface {
-	Timestamper
-	SetCreatedBy(createdBy interface{})
-	GetCreatedBy() string
-	SetUpdatedBy(updatedBy interface{})
-	GetUpdatedBy() *string
-}
-
 type Audited struct {
-	CreatedByID string
-	UpdatedByID *string
+	CreatedByID bid.BID
+	UpdatedByID bid.BID
 	Timestamps
 }
 
-func (a *Audited) SetCreatedBy(createdBy interface{}) {
-	a.CreatedByID = fmt.Sprintf("%v", createdBy)
-}
-
-func (a *Audited) GetCreatedBy() string {
-	return a.CreatedByID
-}
-
-func (a *Audited) SetUpdatedBy(updatedBy interface{}) {
-	if updatedBy == nil {
-		a.UpdatedByID = nil
+func (a *Audited) SetCreatedBy(value IDValuer) {
+	if value == nil {
+		a.CreatedByID = bid.Zero()
 	} else {
-		v := fmt.Sprintf("%v", updatedBy)
-		a.UpdatedByID = &v
+		a.CreatedByID = value.Raw().(bid.BID)
 	}
 }
 
-func (a *Audited) GetUpdatedBy() *string {
-	return a.UpdatedByID
+func (a *Audited) GetCreatedBy() IDValuer {
+	return BytesId(a.CreatedByID[:])
+}
+
+func (a *Audited) SetUpdatedBy(value IDValuer) {
+	if value == nil {
+		a.UpdatedByID = bid.Zero()
+	} else {
+		a.UpdatedByID = value.Raw().(bid.BID)
+	}
+}
+
+func (a *Audited) GetUpdatedBy() IDValuer {
+	return BytesId(a.UpdatedByID[:])
 }
 
 type AuditedModel struct {
-	KeyStringSerial
+	Model
 	Audited
 }
 
-func (scope *Scope) GetCurrentUserID() (id string, ok bool) {
+func (scope *Scope) GetCurrentUserID() (id interface{}) {
 	return scope.db.GetCurrentUserID()
 }

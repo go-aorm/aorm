@@ -15,7 +15,7 @@ func TestDelete(t *testing.T) {
 	}
 
 	if !DB.Where("name = ?", user1.Name).First(&User{}).RecordNotFound() {
-		t.Errorf("User can't be found after delete")
+		t.Errorf("User can'T be found after delete")
 	}
 
 	if DB.Where("name = ?", user2.Name).First(&User{}).RecordNotFound() {
@@ -31,13 +31,13 @@ func TestInlineDelete(t *testing.T) {
 	if DB.Delete(&User{}, user1.Id).Error != nil {
 		t.Errorf("No error should happen when delete a record")
 	} else if !DB.Where("name = ?", user1.Name).First(&User{}).RecordNotFound() {
-		t.Errorf("User can't be found after delete")
+		t.Errorf("User can'T be found after delete")
 	}
 
 	if err := DB.Delete(&User{}, "name = ?", user2.Name).Error; err != nil {
 		t.Errorf("No error should happen when delete a record, err=%s", err)
 	} else if !DB.Where("name = ?", user2.Name).First(&User{}).RecordNotFound() {
-		t.Errorf("User can't be found after delete")
+		t.Errorf("User can'T be found after delete")
 	}
 }
 
@@ -54,7 +54,7 @@ func TestSoftDelete(t *testing.T) {
 	DB.Delete(&user)
 
 	if DB.First(&User{}, "name = ?", user.Name).Error == nil {
-		t.Errorf("Can't find a soft deleted record")
+		t.Errorf("Can'T find a soft deleted record")
 	}
 
 	if err := DB.Unscoped().First(&User{}, "name = ?", user.Name).Error; err != nil {
@@ -63,7 +63,7 @@ func TestSoftDelete(t *testing.T) {
 
 	DB.Unscoped().Delete(&user)
 	if !DB.Unscoped().First(&User{}, "name = ?", user.Name).RecordNotFound() {
-		t.Errorf("Can't find permanently deleted record")
+		t.Errorf("Can'T find permanently deleted record")
 	}
 }
 
@@ -77,7 +77,7 @@ func TestSoftDeleteWithCustomizedDeletedAtColumnName(t *testing.T) {
 	}
 
 	if DB.First(&CreditCard{}, "number = ?", creditCard.Number).Error == nil {
-		t.Errorf("Can't find a soft deleted record")
+		t.Errorf("Can'T find a soft deleted record")
 	}
 
 	if err := DB.Unscoped().First(&CreditCard{}, "number = ?", creditCard.Number).Error; err != nil {
@@ -86,6 +86,6 @@ func TestSoftDeleteWithCustomizedDeletedAtColumnName(t *testing.T) {
 
 	DB.Unscoped().Delete(&creditCard)
 	if !DB.Unscoped().First(&CreditCard{}, "number = ?", creditCard.Number).RecordNotFound() {
-		t.Errorf("Can't find permanently deleted record")
+		t.Errorf("Can'T find permanently deleted record")
 	}
 }

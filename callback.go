@@ -1,6 +1,8 @@
 package aorm
 
-import "log"
+import (
+	"strings"
+)
 
 // DefaultCallback default callbacks defined by gorm
 var DefaultCallback = &Callback{}
@@ -45,7 +47,7 @@ func (c *Callback) clone() *Callback {
 }
 
 // Create could be used to register callbacks for creating object
-//     db.Callback().Create().After("gorm:create").Register("plugin:run_after_create", func(*Scope) {
+//     db.Callback().Create().After("aorm:create").Register("plugin:run_after_create", func(*Scope) {
 //       // business logic
 //       ...
 //
@@ -79,22 +81,24 @@ func (c *Callback) RowQuery() *CallbackProcessor {
 
 // After insert a new callback after callback `callbackName`, refer `Callbacks.Create`
 func (cp *CallbackProcessor) After(callbackName string) *CallbackProcessor {
+	callbackName = strings.ReplaceAll(callbackName, "gorm:", "aorm:")
 	cp.after = callbackName
 	return cp
 }
 
 // Before insert a new callback before callback `callbackName`, refer `Callbacks.Create`
 func (cp *CallbackProcessor) Before(callbackName string) *CallbackProcessor {
-	cp.before = callbackName
+	cp.before = strings.ReplaceAll(callbackName, "gorm:", "aorm:")
 	return cp
 }
 
 // Register a new callback, refer `Callbacks.Create`
 func (cp *CallbackProcessor) Register(callbackName string, callback func(scope *Scope)) {
+	callbackName = strings.ReplaceAll(callbackName, "gorm:", "aorm:")
 	if cp.kind == "row_query" {
-		if cp.before == "" && cp.after == "" && callbackName != "gorm:row_query" {
-			log.Printf("Registing RowQuery callback %v without specify order with Before(), After(), applying Before('gorm:row_query') by default for compatibility...\n", callbackName)
-			cp.before = "gorm:row_query"
+		if cp.before == "" && cp.after == "" && callbackName != "aorm:row_query" {
+			log.Warningf("Registing RowQuery callback %v without specify order with Before(), After(), applying Before('aorm:row_query') by default for compatibility...", callbackName)
+			cp.before = "aorm:row_query"
 		}
 	}
 
@@ -105,9 +109,10 @@ func (cp *CallbackProcessor) Register(callbackName string, callback func(scope *
 }
 
 // Remove a registered callback
-//     db.Callback().Create().Remove("gorm:update_time_stamp_when_create")
+//     db.Callback().Create().Remove("aorm:update_time_stamp_when_create")
 func (cp *CallbackProcessor) Remove(callbackName string) {
-	log.Printf("[info] removing callback `%v` from %v\n", callbackName, fileWithLineNum())
+	callbackName = strings.ReplaceAll(callbackName, "gorm:", "aorm:")
+	log.Infof("removing callback `%v` from %v", callbackName, fileWithLineNum())
 	cp.name = callbackName
 	cp.remove = true
 	cp.parent.processors = append(cp.parent.processors, cp)
@@ -115,12 +120,13 @@ func (cp *CallbackProcessor) Remove(callbackName string) {
 }
 
 // Replace a registered callback with new callback
-//     db.Callback().Create().Replace("gorm:update_time_stamp_when_create", func(*Scope) {
+//     db.Callback().Create().Replace("aorm:update_time_stamp_when_create", func(*Scope) {
 //		   scope.SetColumn("Created", now)
 //		   scope.SetColumn("Updated", now)
 //     })
 func (cp *CallbackProcessor) Replace(callbackName string, callback func(scope *Scope)) {
-	log.Printf("[info] replacing callback `%v` from %v\n", callbackName, fileWithLineNum())
+	callbackName = strings.ReplaceAll(callbackName, "gorm:", "aorm:")
+	log.Infof("replacing callback `%v` from %v", callbackName, fileWithLineNum())
 	cp.name = callbackName
 	cp.processor = &callback
 	cp.replace = true
@@ -129,8 +135,9 @@ func (cp *CallbackProcessor) Replace(callbackName string, callback func(scope *S
 }
 
 // Get registered callback
-//    db.Callback().Create().Get("gorm:create")
+//    db.Callback().Create().Get("aorm:create")
 func (cp *CallbackProcessor) Get(callbackName string) (callback func(scope *Scope)) {
+	callbackName = strings.ReplaceAll(callbackName, "gorm:", "aorm:")
 	for _, p := range cp.parent.processors {
 		if p.name == callbackName && p.kind == cp.kind && !cp.remove {
 			return *p.processor
@@ -159,7 +166,7 @@ func sortProcessors(cps []*CallbackProcessor) []*func(scope *Scope) {
 	for _, cp := range cps {
 		// show warning message the callback name already exists
 		if index := getRIndex(allNames, cp.name); index > -1 && !cp.replace && !cp.remove {
-			log.Printf("[warning] duplicated callback `%v` from %v\n", cp.name, fileWithLineNum())
+			log.Warningf("duplicated callback `%v` from %v\n", cp.name, fileWithLineNum())
 		}
 		allNames = append(allNames, cp.name)
 	}
@@ -171,7 +178,7 @@ func sortProcessors(cps []*CallbackProcessor) []*func(scope *Scope) {
 					// if before callback already sorted, append current callback just after it
 					sortedNames = append(sortedNames[:index], append([]string{c.name}, sortedNames[index:]...)...)
 				} else if index := getRIndex(allNames, c.before); index != -1 {
-					// if before callback exists but haven't sorted, append current callback to last
+					// if before callback exists but haven'T sorted, append current callback to last
 					sortedNames = append(sortedNames, c.name)
 					sortCallbackProcessor(cps[index])
 				}
@@ -182,7 +189,7 @@ func sortProcessors(cps []*CallbackProcessor) []*func(scope *Scope) {
 					// if after callback already sorted, append current callback just before it
 					sortedNames = append(sortedNames[:index+1], append([]string{c.name}, sortedNames[index+1:]...)...)
 				} else if index := getRIndex(allNames, c.after); index != -1 {
-					// if after callback exists but haven't sorted
+					// if after callback exists but haven'T sorted
 					cp := cps[index]
 					// set after callback's before callback to current callback
 					if cp.before == "" {
@@ -192,7 +199,7 @@ func sortProcessors(cps []*CallbackProcessor) []*func(scope *Scope) {
 				}
 			}
 
-			// if current callback haven't been sorted, append it to last
+			// if current callback haven'T been sorted, append it to last
 			if getRIndex(sortedNames, c.name) == -1 {
 				sortedNames = append(sortedNames, c.name)
 			}

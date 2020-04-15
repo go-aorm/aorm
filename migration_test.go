@@ -14,7 +14,7 @@ import (
 	"github.com/moisespsena-go/aorm"
 )
 
-func init()  {
+func init() {
 	aorm.StructFieldMethodCallbacks.RegisterFieldType(&AfterScanField{}, &AfterScanFieldPtr{}, &InvalidAfterScanField{})
 }
 
@@ -34,7 +34,7 @@ type User struct {
 	ShippingAddressId int64         // Embedded struct's foreign key
 	CreditCard        CreditCard
 	Latitude          float64
-	Languages         []Language `gorm:"many2many:user_languages;"`
+	Languages         []Language `aorm:"many2many:user_languages;"`
 	CompanyID         *int
 	Company           Company
 	Role              Role
@@ -96,7 +96,7 @@ type Address struct {
 type Language struct {
 	aorm.Model
 	Name  string
-	Users []User `gorm:"many2many:user_languages;"`
+	Users []User `aorm:"many2many:user_languages;"`
 }
 
 type Product struct {
@@ -148,7 +148,7 @@ func (data EncryptedData) Value() (driver.Value, error) {
 }
 
 type Role struct {
-	Name string `gorm:"size:256"`
+	Name string `aorm:"size:256"`
 }
 
 func (role *Role) Scan(value interface{}) error {
@@ -184,7 +184,7 @@ func (i *Num) Scan(src interface{}) error {
 }
 
 type Animal struct {
-	Counter    uint64    `gorm:"primary_key:yes"`
+	Counter    uint64    `aorm:"primary_key:yes"`
 	Name       string    `sql:"DEFAULT:'galeone'"`
 	From       string    //test reserved sql keyword as field name
 	Age        time.Time `sql:"DEFAULT:current_timestamp"`
@@ -341,10 +341,9 @@ func (s InvalidAfterScanField) AfterScan(invalidArg int) {
 }
 
 type WithFieldAfterScanInvalidCallback struct {
-	ID    int
+	ID   int
 	Name InvalidAfterScanField
 }
-
 
 func getPreparedUser(name string, role string) *User {
 	var company Company
@@ -434,11 +433,11 @@ func TestIndexes(t *testing.T) {
 
 	var user = User{Name: "sample_user"}
 	DB.Save(&user)
-	if DB.Model(&user).Association("Emails").Append(Email{Email: "not-1duplicated@gmail.com"}, Email{Email: "not-duplicated2@gmail.com"}).Error != nil {
+	if DB.Model(&user).Association("Emails").Append(Email{Email: "not-1duplicated@gmail.com"}, Email{Email: "not-duplicated2@gmail.com"}).error != nil {
 		t.Errorf("Should get no error when append two emails for user")
 	}
 
-	if DB.Model(&user).Association("Emails").Append(Email{Email: "duplicated@gmail.com"}, Email{Email: "duplicated@gmail.com"}).Error == nil {
+	if DB.Model(&user).Association("Emails").Append(Email{Email: "duplicated@gmail.com"}, Email{Email: "duplicated@gmail.com"}).error == nil {
 		t.Errorf("Should get no duplicated email error when insert duplicated emails for a user")
 	}
 
@@ -516,7 +515,7 @@ func TestCreateAndAutomigrateTransaction(t *testing.T) {
 		err := tx.CreateTable(&Bar{}).Error
 
 		if err != nil {
-			t.Errorf("Should have been able to create the table, but couldn't: %s", err)
+			t.Errorf("Should have been able to create the table, but couldn'T: %s", err)
 		}
 
 		if ok := tx.HasTable(&Bar{}); !ok {
@@ -531,7 +530,7 @@ func TestCreateAndAutomigrateTransaction(t *testing.T) {
 
 		err := tx.AutoMigrate(&Bar{}).Error
 		if err != nil {
-			t.Errorf("Should have been able to alter the table, but couldn't")
+			t.Errorf("Should have been able to alter the table, but couldn'T")
 		}
 	}()
 
@@ -604,20 +603,20 @@ func TestMultipleIndexes(t *testing.T) {
 }
 
 func TestModifyColumnType(t *testing.T) {
-	if dialect := os.Getenv("GORM_DIALECT"); dialect != "postgres" && dialect != "mysql" && dialect != "mssql" {
+	if dialect := os.Getenv("AORM_DIALECT"); dialect != "postgres" && dialect != "mysql" && dialect != "mssql" {
 		t.Skip("Skipping this because only postgres, mysql and mssql support altering a column type")
 	}
 
 	type ModifyColumnType struct {
 		aorm.Model
-		Name1 string `gorm:"length:100"`
-		Name2 string `gorm:"length:200"`
+		Name1 string `aorm:"length:100"`
+		Name2 string `aorm:"length:200"`
 	}
 	DB.DropTable(&ModifyColumnType{})
 	DB.CreateTable(&ModifyColumnType{})
 
 	name2Field, _ := DB.NewScope(&ModifyColumnType{}).FieldByName("Name2")
-	name2Type := DB.Dialect().DataTypeOf(name2Field.StructField)
+	name2Type := DB.Dialect().DataTypeOf(name2Field.Structure())
 
 	if err := DB.Model(&ModifyColumnType{}).ModifyColumn("name1", name2Type).Error; err != nil {
 		t.Errorf("No error should happen when ModifyColumn, but got %v", err)

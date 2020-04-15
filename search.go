@@ -6,30 +6,32 @@ import (
 )
 
 type search struct {
-	db                 *DB
-	whereConditions    []map[string]interface{}
-	orConditions       []map[string]interface{}
-	notConditions      []map[string]interface{}
-	havingConditions   []map[string]interface{}
-	joinConditions     []map[string]interface{}
-	initAttrs          []interface{}
-	assignAttrs        []interface{}
-	selects            map[string]interface{}
-	omits              []string
-	orders             []interface{}
-	preload            []searchPreload
-	inlinePreload      []searchPreload
-	offset             interface{}
-	limit              interface{}
-	group              string
-	from               string
-	tableName          string
-	tableAlias         string
-	raw                bool
-	Unscoped           bool
-	ignoreOrderQuery   bool
-	extraSelects       *extraSelects
-	extraSelectsFields *extraSelectsFields
+	db                     *DB
+	whereConditions        []*Clause
+	orConditions           []*Clause
+	notConditions          []*Clause
+	havingConditions       []*Clause
+	joinConditions         []*Clause
+	initAttrs              []interface{}
+	assignAttrs            []interface{}
+	selects                map[string]interface{}
+	omits                  []string
+	orders                 []interface{}
+	preload                []searchPreload
+	inlinePreload          []searchPreload
+	offset                 interface{}
+	limit                  interface{}
+	group                  string
+	from                   string
+	tableName              string
+	tableAlias             string
+	raw                    bool
+	Unscoped               bool
+	ignoreOrderQuery       bool
+	extraSelects           *extraSelects
+	extraSelectsFields     *extraSelectsFields
+	defaultColumnValue     func(scope *Scope, record interface{}, column string) interface{}
+	columnsScannerCallback func(scope *Scope, record interface{}, columns []string, values []interface{})
 }
 
 type searchPreload struct {
@@ -42,18 +44,25 @@ func (s *search) clone() *search {
 	return &clone
 }
 
+func (s search) resetConditions() *search {
+	s.whereConditions = nil
+	s.orConditions = nil
+	s.notConditions = nil
+	return &s
+}
+
 func (s *search) Where(query interface{}, values ...interface{}) *search {
-	s.whereConditions = append(s.whereConditions, map[string]interface{}{"query": query, "args": values})
+	s.whereConditions = append(s.whereConditions, &Clause{query, values})
 	return s
 }
 
 func (s *search) Not(query interface{}, values ...interface{}) *search {
-	s.notConditions = append(s.notConditions, map[string]interface{}{"query": query, "args": values})
+	s.notConditions = append(s.notConditions, &Clause{query, values})
 	return s
 }
 
 func (s *search) Or(query interface{}, values ...interface{}) *search {
-	s.orConditions = append(s.orConditions, map[string]interface{}{"query": query, "args": values})
+	s.orConditions = append(s.orConditions, &Clause{query, values})
 	return s
 }
 
@@ -139,16 +148,16 @@ func (s *search) Group(query string) *search {
 }
 
 func (s *search) Having(query interface{}, values ...interface{}) *search {
-	if val, ok := query.(*expr); ok {
-		s.havingConditions = append(s.havingConditions, map[string]interface{}{"query": val.expr, "args": val.args})
+	if val, ok := query.(*Query); ok {
+		s.havingConditions = append(s.havingConditions, &Clause{val.Query, val.Args})
 	} else {
-		s.havingConditions = append(s.havingConditions, map[string]interface{}{"query": query, "args": values})
+		s.havingConditions = append(s.havingConditions, &Clause{query, values})
 	}
 	return s
 }
 
 func (s *search) Joins(query string, values ...interface{}) *search {
-	s.joinConditions = append(s.joinConditions, map[string]interface{}{"query": query, "args": values})
+	s.joinConditions = append(s.joinConditions, &Clause{query, values})
 	return s
 }
 
@@ -172,9 +181,9 @@ func (s *search) Preload(schema string, options ...*InlinePreloadOptions) *searc
 
 func (s *search) InlinePreload(schema string, options ...*InlinePreloadOptions) *search {
 	var opt *InlinePreloadOptions
-	if len(options) > 0 {
-		opt = options[0]
-	} else {
+	for _, opt = range options {
+	}
+	if opt == nil {
 		opt = &InlinePreloadOptions{}
 	}
 	var preloads []searchPreload

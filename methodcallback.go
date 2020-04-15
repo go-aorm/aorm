@@ -123,7 +123,7 @@ func (registrator *StructFieldMethodCallbacksRegistrator) registerCallback(metho
 	value := indirect(reflect.ValueOf(caller))
 
 	if value.Kind() != reflect.Func {
-		return fmt.Errorf("Caller of method %q isn't a function.", methodName)
+		return fmt.Errorf("Caller of method %q isn'T a function.", methodName)
 	}
 
 	if value.Type().NumIn() < 2 {
@@ -132,11 +132,11 @@ func (registrator *StructFieldMethodCallbacksRegistrator) registerCallback(metho
 	}
 
 	if value.Type().In(0) != methodPtrType {
-		return fmt.Errorf("First arg of caller %v for method %q isn't a %v type.", value.Type(), methodName, methodPtrType)
+		return fmt.Errorf("First arg of caller %v for method %q isn'T a %v type.", value.Type(), methodName, methodPtrType)
 	}
 
 	if value.Type().In(1).Kind() != reflect.Interface {
-		return fmt.Errorf("Second arg of caller %v for method %q isn't a interface{} type.", value.Type(), methodName)
+		return fmt.Errorf("Second arg of caller %v for method %q isn'T a interface{} type.", value.Type(), methodName)
 	}
 
 	registrator.l.Lock()

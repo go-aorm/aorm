@@ -19,8 +19,8 @@ func (sqlite3) GetName() string {
 	return "sqlite3"
 }
 
-// Get Data Type for Sqlite Dialect
-func (s *sqlite3) DataTypeOf(field *StructField) string {
+// Get Data Type for Sqlite Dialector
+func (s *sqlite3) DataTypeOf(field *FieldStructure) string {
 	var dataValue, sqlType, size, additionalType = ParseFieldStructForDialect(field, s)
 
 	if sqlType == "" {
@@ -57,6 +57,11 @@ func (s *sqlite3) DataTypeOf(field *StructField) string {
 			if IsByteArrayOrSlice(dataValue) {
 				sqlType = "blob"
 			}
+		}
+	} else if size > 0 {
+		switch sqlType {
+		case "CHAR", "VARCHAR":
+			sqlType += fmt.Sprintf("(%d)", size)
 		}
 	}
 
@@ -104,4 +109,22 @@ func (s sqlite3) CurrentDatabase() (name string) {
 		name = *pointers[1]
 	}
 	return
+}
+
+func (s sqlite3) DuplicateUniqueIndexError(indexes IndexMap, _ string, sqlErr error) (err error) {
+	msg := sqlErr.Error()
+	if strings.Contains(msg, "UNIQUE constraint failed") {
+		if pos := strings.IndexRune(msg, ':'); pos > 0 {
+			columns := strings.Split(msg[pos+1:], ", ")
+			for i := range columns {
+				if lastPos := strings.LastIndexByte(columns[i], '.'); lastPos > 0 {
+					columns[i] = columns[i][lastPos+1:]
+				}
+			}
+			if index := indexes.FromColumns(columns...); index != nil {
+				return &DuplicateUniqueIndexError{index, sqlErr}
+			}
+		}
+	}
+	return sqlErr
 }

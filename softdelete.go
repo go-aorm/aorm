@@ -1,7 +1,7 @@
 package aorm
 
 import (
-	"fmt"
+	"github.com/moisespsena-go/bid"
 	"time"
 )
 
@@ -22,10 +22,6 @@ var (
 	AuditedSDFields = append(append([]string{}, AuditedFields...), SoftDeleteFields...)
 )
 
-type SoftDeleter interface {
-	GetDeletedAt() *time.Time
-}
-
 type SoftDelete struct {
 	DeletedAt *time.Time `sql:"index"`
 }
@@ -34,27 +30,16 @@ func (d *SoftDelete) GetDeletedAt() *time.Time {
 	return d.DeletedAt
 }
 
-type SoftDeleteAuditor interface {
-	SoftDeleter
-	SetDeletedBy(deletedBy interface{})
-	GetDeletedBy() *string
-}
-
 type SoftDeleteAudited struct {
 	SoftDelete
-	DeletedByID *string
+	DeletedByID bid.BID
 }
 
 func (a *SoftDeleteAudited) SetDeletedBy(deletedBy interface{}) {
-	if deletedBy == nil {
-		a.DeletedByID = nil
-	} else {
-		v := fmt.Sprintf("%v", deletedBy)
-		a.DeletedByID = &v
-	}
+	a.DeletedByID = bid.From(deletedBy)
 }
 
-func (a *SoftDeleteAudited) GetDeletedBy() *string {
+func (a *SoftDeleteAudited) GetDeletedBy() interface{} {
 	return a.DeletedByID
 }
 
@@ -64,6 +49,6 @@ type AuditedSD struct {
 }
 
 type AuditedSDModel struct {
-	KeyStringSerial
+	Model
 	AuditedSD
 }

@@ -8,7 +8,7 @@ Your issue may already be reported! Please search on the [issue track](https://g
 
 ### Please provide a complete runnable program to reproduce your issue. **IMPORTANT**
 
-Need to runnable with [GORM's docker compose config](https://github.com/moisespsena-go/aorm/blob/master/docker-compose.yml) or please provides your config.
+Need to runnable with [AORM's docker compose config](https://github.com/moisespsena-go/aorm/blob/master/docker-compose.yml) or please provides your config.
 
 ```go
 package main
@@ -21,14 +21,14 @@ import (
 	_ "github.com/moisespsena-go/aorm/dialects/sqlite"
 )
 
-var db *DB
+var db *aorm.DB
 
 func init() {
 	var err error
-	db, err = Open("sqlite3", "test.db")
-	// db, err = Open("postgres", "user=gorm password=gorm DB.name=gorm port=9920 sslmode=disable")
-	// db, err = Open("mysql", "gorm:gorm@tcp(localhost:9910)/gorm?charset=utf8&parseTime=True")
-	// db, err = Open("mssql", "sqlserver://gorm:LoremIpsum86@localhost:9930?database=gorm")
+	db, err = aorm.Open("sqlite3", "test.db")
+	// db, err = Open("postgres", "user=gorm password=gorm DB.name=aorm port=9920 sslmode=disable")
+	// db, err = Open("mysql", "aorm:gorm@tcp(localhost:9910)/gorm?charset=utf8&parseTime=True")
+	// db, err = Open("mssql", "sqlserver://aorm:LoremIpsum86@localhost:9930?database=aorm")
 	if err != nil {
 		panic(err)
 	}

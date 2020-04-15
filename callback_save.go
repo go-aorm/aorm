@@ -2,7 +2,6 @@ package aorm
 
 import (
 	"reflect"
-	"strings"
 )
 
 func beginTransactionCallback(scope *Scope) {
@@ -14,26 +13,11 @@ func commitOrRollbackTransactionCallback(scope *Scope) {
 }
 
 func saveAssociationCheck(scope *Scope, field *Field) (autoUpdate bool, autoCreate bool, saveReference bool, r *Relationship) {
-	checkTruth := func(value interface{}) bool {
-		if v, ok := value.(bool); ok && !v {
-			return false
-		}
-
-		if v, ok := value.(string); ok {
-			v = strings.ToLower(v)
-			if v == "false" || v != "skip" {
-				return false
-			}
-		}
-
-		return true
-	}
-
 	if scope.changeableField(field) && !field.IsBlank && !field.IsIgnored {
 		if r = field.Relationship; r != nil {
 			autoUpdate, autoCreate, saveReference = true, true, true
 
-			if value, ok := scope.Get("gorm:save_associations"); ok {
+			if value, ok := scope.Get("aorm:save_associations"); ok {
 				autoUpdate = checkTruth(value)
 				autoCreate = autoUpdate
 			} else if value, ok := field.TagSettings["SAVE_ASSOCIATIONS"]; ok {
@@ -41,19 +25,19 @@ func saveAssociationCheck(scope *Scope, field *Field) (autoUpdate bool, autoCrea
 				autoCreate = autoUpdate
 			}
 
-			if value, ok := scope.Get("gorm:association_autoupdate"); ok {
+			if value, ok := scope.Get("aorm:association_autoupdate"); ok {
 				autoUpdate = checkTruth(value)
 			} else if value, ok := field.TagSettings["ASSOCIATION_AUTOUPDATE"]; ok {
 				autoUpdate = checkTruth(value)
 			}
 
-			if value, ok := scope.Get("gorm:association_autocreate"); ok {
+			if value, ok := scope.Get("aorm:association_autocreate"); ok {
 				autoCreate = checkTruth(value)
 			} else if value, ok := field.TagSettings["ASSOCIATION_AUTOCREATE"]; ok {
 				autoCreate = checkTruth(value)
 			}
 
-			if value, ok := scope.Get("gorm:association_save_reference"); ok {
+			if value, ok := scope.Get("aorm:association_save_reference"); ok {
 				saveReference = checkTruth(value)
 			} else if value, ok := field.TagSettings["ASSOCIATION_SAVE_REFERENCE"]; ok {
 				saveReference = checkTruth(value)
@@ -65,7 +49,7 @@ func saveAssociationCheck(scope *Scope, field *Field) (autoUpdate bool, autoCrea
 }
 
 func saveBeforeAssociationsCallback(scope *Scope) {
-	for _, field := range scope.Fields() {
+	for _, field := range scope.Instance().RelatedFields() {
 		autoUpdate, autoCreate, saveReference, relationship := saveAssociationCheck(scope, field)
 
 		if relationship != nil && relationship.Kind == "belongs_to" {
@@ -73,10 +57,10 @@ func saveBeforeAssociationsCallback(scope *Scope) {
 			if field.Struct.Type.Kind() == reflect.Ptr {
 				continue
 			}
-			fieldValue := field.Field.Addr().Interface()
-			newScope := scope.New(fieldValue)
 
-			if newScope.PrimaryKeyZero() {
+			fieldValue := field.Field.Addr().Interface()
+
+			if ZeroIdOf(fieldValue) {
 				if autoCreate {
 					scope.Err(scope.NewDB().Save(fieldValue).Error)
 				}
@@ -100,7 +84,7 @@ func saveBeforeAssociationsCallback(scope *Scope) {
 }
 
 func saveAfterAssociationsCallback(scope *Scope) {
-	for _, field := range scope.Fields() {
+	for _, field := range scope.Instance().RelatedFields() {
 		autoUpdate, autoCreate, saveReference, relationship := saveAssociationCheck(scope, field)
 
 		if relationship != nil && (relationship.Kind == "has_one" || relationship.Kind == "has_many" || relationship.Kind == "many_to_many") {
@@ -124,7 +108,7 @@ func saveAfterAssociationsCallback(scope *Scope) {
 						}
 
 						if relationship.PolymorphicType != "" {
-							scope.Err(newScope.SetColumn(relationship.PolymorphicType, relationship.PolymorphicValue))
+							scope.Err(newScope.SetColumn(relationship.PolymorphicType, relationship.PolymorphicValue(scope.db.Context, scope.db.singularTable)))
 						}
 					}
 
@@ -133,10 +117,23 @@ func saveAfterAssociationsCallback(scope *Scope) {
 							scope.Err(newDB.Save(elem).Error)
 						}
 					} else if autoUpdate {
-						scope.Err(newDB.Save(elem).Error)
+						switch relationship.Kind {
+						case "many_to_many":
+							if value, ok := scope.Get("aorm:association_autoupdate:many_to_many"); ok {
+								if checkTruth(value) {
+									if scope.Err(newDB.Save(elem).Error) != nil {
+										return
+									}
+								}
+							}
+						default:
+							if scope.Err(newDB.Save(elem).Error) != nil {
+								return
+							}
+						}
 					}
 
-					if !scope.New(newScope.Value).PrimaryKeyZero() && saveReference {
+					if !ZeroIdOf(newScope.Value) && saveReference {
 						if joinTableHandler := relationship.JoinTableHandler; joinTableHandler != nil {
 							scope.Err(joinTableHandler.Add(joinTableHandler, newDB, scope.Value, newScope.Value))
 						}
@@ -157,7 +154,7 @@ func saveAfterAssociationsCallback(scope *Scope) {
 					}
 
 					if relationship.PolymorphicType != "" {
-						scope.Err(newScope.SetColumn(relationship.PolymorphicType, relationship.PolymorphicValue))
+						scope.Err(newScope.SetColumn(relationship.PolymorphicType, relationship.PolymorphicValue(scope.db.Context, scope.db.singularTable)))
 					}
 				}
 

@@ -125,14 +125,14 @@ type ScannerDataTypeTestStruct2 struct {
 func TestScannerDataType(t *testing.T) {
 	scope := aorm.Scope{Value: &ScannerDataTypeTestStruct{}}
 	if field, ok := scope.FieldByName("ScannerDataType"); ok {
-		if DB.Dialect().DataTypeOf(field.StructField) != "json" {
+		if DB.Dialect().DataTypeOf(field.Structure()) != "json" {
 			t.Errorf("data type for scanner is wrong")
 		}
 	}
 
 	scope = aorm.Scope{Value: &ScannerDataTypeTestStruct2{}}
 	if field, ok := scope.FieldByName("ScannerDataType"); ok {
-		if DB.Dialect().DataTypeOf(field.StructField) != "varchar(24)" {
+		if DB.Dialect().DataTypeOf(field.Structure()) != "varchar(24)" {
 			t.Errorf("data type for scanner is wrong")
 		}
 	}

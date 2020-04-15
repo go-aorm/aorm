@@ -1,18 +1,23 @@
 package aorm
 
 import (
+	"context"
 	"database/sql"
-	"errors"
 	"fmt"
+	"io"
 	"reflect"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/moisespsena-go/tracederror"
+	"github.com/pkg/errors"
+
+	"github.com/moisespsena-go/logging"
 )
 
 // DB contains information for current db connection
 type DB struct {
-	Value        interface{}
+	Val          interface{}
 	Error        error
 	RowsAffected int64
 
@@ -20,17 +25,41 @@ type DB struct {
 	db                SQLCommon
 	blockGlobalUpdate bool
 	logMode           int
-	logger            logger
+	logger            logging.Logger
 	search            *search
 	values            map[string]interface{}
 	path              []interface{}
 
 	// global db
-	parent        *DB
-	callbacks     *Callback
-	dialect       Dialect
-	singularTable bool
-	assigners     *AssignerRegistrator
+	parent             *DB
+	callbacks          *Callback
+	dialect            Dialector
+	singularTable      bool
+	assigners          *AssignerRegistrator
+	modelStructStorage *ModelStructStorage
+	Context            context.Context
+	noExec             bool
+
+	Query *Query
+}
+
+func NewDB(dialect ...Dialector) (db *DB) {
+	modelStructStorage := NewModelStructStorage()
+	modelStructStorage.GetAssigner = func(typ reflect.Type) Assigner {
+		return db.GetAssigner(typ)
+	}
+
+	db = &DB{
+		logger:             log,
+		values:             map[string]interface{}{},
+		callbacks:          DefaultCallback,
+		Context:            context.Background(),
+		modelStructStorage: modelStructStorage,
+	}
+	db.parent = db
+	for _, db.dialect = range dialect {
+	}
+	return db
 }
 
 // Open initialize a new db connection, need to import driver first, e.g:
@@ -39,7 +68,7 @@ type DB struct {
 //     func main() {
 //       db, err := aorm.Open("mysql", "user:password@/dbname?charset=utf8&parseTime=True&loc=Local")
 //     }
-// GORM has wrapped some drivers, for easier to remember driver's import path, so you could import the mysql driver with
+// AORM has wrapped some drivers, for easier to remember driver's import path, so you could import the mysql driver with
 //    import _ "github.com/moisespsena-go/aorm/dialects/mysql"
 //    // import _ "github.com/moisespsena-go/aorm/dialects/postgres"
 //    // import _ "github.com/moisespsena-go/aorm/dialects/sqlite"
@@ -62,23 +91,21 @@ func Open(dialect string, args ...interface{}) (db *DB, err error) {
 			driver = value
 			source = args[1].(string)
 		}
-		dbSQL, err = sql.Open(driver, source)
+		if dbSQL, err = sql.Open(driver, source); err != nil {
+			return nil, errors.Wrap(err, "open")
+		}
 		ownDbSQL = true
 	case SQLCommon:
 		dbSQL = value
 		ownDbSQL = false
 	default:
-		return nil, fmt.Errorf("invalid database source: %v is not a valid type", value)
+		return nil, errors.New(fmt.Sprintf("invalid database source: %v is not a valid type", value))
 	}
 
-	db = &DB{
-		db:        dbSQL,
-		logger:    defaultLogger,
-		values:    map[string]interface{}{},
-		callbacks: DefaultCallback,
-		dialect:   newDialect(dialect, dbSQL),
-	}
-	db.parent = db
+	db = NewDB()
+	db.db = dbSQL
+	db.dialect = newDialect(dialect, dbSQL)
+
 	if err != nil {
 		return
 	}
@@ -87,6 +114,7 @@ func Open(dialect string, args ...interface{}) (db *DB, err error) {
 		if err = d.Ping(); err != nil && ownDbSQL {
 			d.Close()
 		}
+
 	}
 	return
 }
@@ -95,20 +123,16 @@ func Open(dialect string, args ...interface{}) (db *DB, err error) {
 func (s *DB) New() *DB {
 	clone := s.clone()
 	clone.search = nil
-	clone.Value = nil
+	clone.Val = nil
 	return clone
-}
-
-type closer interface {
-	Close() error
 }
 
 // Close close current db connection.  If database connection is not an io.Closer, returns an error.
 func (s *DB) Close() error {
-	if db, ok := s.parent.db.(closer); ok {
+	if db, ok := s.parent.db.(io.Closer); ok {
 		return db.Close()
 	}
-	return errors.New("can't close current db")
+	return errors.New("can'T close current db")
 }
 
 // DB get `*sql.DB` from current connection
@@ -118,13 +142,20 @@ func (s *DB) DB() *sql.DB {
 	return db
 }
 
-// CommonDB return the underlying `*sql.DB` or `*sql.Tx` instance, mainly intended to allow coexistence with legacy non-GORM code.
+// CommonDB return the underlying `*sql.DB` or `*sql.Tx` instance, mainly intended to allow coexistence with legacy non-AORM code.
 func (s *DB) CommonDB() SQLCommon {
 	return s.db
 }
 
-// Dialect get dialect
-func (s *DB) Dialect() Dialect {
+// SetCommonDB set the underlying `*sql.DB` or `*sql.Tx` instance, mainly intended to allow coexistence with legacy non-AORM code.
+func (s *DB) SetCommonDB(db SQLCommon) *DB {
+	clone := s.clone()
+	clone.db = db
+	return clone
+}
+
+// Dialector get dialect
+func (s *DB) Dialect() Dialector {
 	return s.dialect
 }
 
@@ -137,7 +168,7 @@ func (s *DB) Callback() *Callback {
 }
 
 // SetLogger replace default logger
-func (s *DB) SetLogger(log logger) {
+func (s *DB) SetLogger(log logging.Logger) {
 	s.logger = log
 }
 
@@ -165,33 +196,37 @@ func (s *DB) HasBlockGlobalUpdate() bool {
 
 // SingularTable use singular table by default
 func (s *DB) SingularTable(enable bool) {
-	modelStructsMap = newModelStructsMap()
 	s.parent.singularTable = enable
 }
 
 // NewScope create a scope for current operation
 func (s *DB) NewScope(value interface{}) *Scope {
 	dbClone := s.clone()
-	dbClone.Value = value
-	return &Scope{db: dbClone, Search: dbClone.search.clone(), Value: value}
+	dbClone.Val = value
+	var serial uint16
+	return &Scope{
+		db:     dbClone,
+		Search: dbClone.search.clone(),
+		Value:  value,
+		serial: &serial,
+	}
 }
 
-// QueryExpr returns the query as expr object
-func (s *DB) QueryExpr() *expr {
-	scope := s.NewScope(s.Value)
+// QueryExpr returns the query as Query object
+func (s *DB) QueryExpr() *Query {
+	scope := s.NewScope(s.Val)
 	scope.InstanceSet("skip_bindvar", true)
 	scope.prepareQuerySQL()
-
-	return Expr(scope.SQL, scope.SQLVars...)
+	return &scope.Query
 }
 
 // SubQuery returns the query as sub query
-func (s *DB) SubQuery() *expr {
-	scope := s.NewScope(s.Value)
+func (s *DB) SubQuery() *Query {
+	scope := s.NewScope(s.Val)
 	scope.InstanceSet("skip_bindvar", true)
 	scope.prepareQuerySQL()
 
-	return Expr(fmt.Sprintf("(%v)", scope.SQL), scope.SQLVars...)
+	return Expr(fmt.Sprintf("(%v)", scope.Query.Query), scope.Query.Args...)
 }
 
 // Where return a new relation, filter records with given conditions, accepts `map`, `struct` or `string` as conditions, refer http://jinzhu.github.io/gorm/crud.html#query
@@ -204,7 +239,7 @@ func (s *DB) Or(query interface{}, args ...interface{}) *DB {
 	return s.clone().search.Or(query, args...).db
 }
 
-// Not filter records that don't match current conditions, similar to `Where`
+// Not filter records that don'T match current conditions, similar to `Where`
 func (s *DB) Not(query interface{}, args ...interface{}) *DB {
 	return s.clone().search.Not(query, args...).db
 }
@@ -250,10 +285,10 @@ func (s *DB) ExtraSelectCallback(f ...func(recorde interface{}, data map[string]
 
 // ExtraSelectFields specify extra fields that you want to retrieve from database when querying
 func (s *DB) ExtraSelectFields(key string, value interface{}, names []string, callback func(scope *Scope, record interface{}), query interface{}, args ...interface{}) *DB {
-	modelStruct := s.NewScope(value).GetModelStruct()
+	modelStruct := s.NewScope(value).Struct()
 	fields := make([]*StructField, len(names))
 	for i, name := range names {
-		if f, ok := modelStruct.StructFieldsByName[name]; ok {
+		if f, ok := modelStruct.FieldsByName[name]; ok {
 			fields[i] = f
 		} else {
 			panic(s.AddError(fmt.Errorf("Invalid field %q", name)))
@@ -286,6 +321,13 @@ func (s *DB) Having(query interface{}, values ...interface{}) *DB {
 //     db.Joins("JOIN emails ON emails.user_id = users.id AND emails.email = ?", "jinzhu@example.org").Find(&user)
 func (s *DB) Joins(query string, args ...interface{}) *DB {
 	return s.clone().search.Joins(query, args...).db
+}
+
+// Join specify Join field conditions
+//     db.Model(&User{}).Join("INNER", "Email")
+//     // INNER JOIN emails ON emails.user_id = user.id
+func (s *DB) Join(fieldName, mode string, handler func()) *DB {
+	panic("not implemented")
 }
 
 // Scopes pass current database connection to arguments `func(*DB) *DB`, which could be used to add conditions dynamically
@@ -327,7 +369,7 @@ func (s *DB) Assign(attrs ...interface{}) *DB {
 func (s *DB) First(out interface{}, where ...interface{}) *DB {
 	newScope := s.NewScope(out)
 	newScope.Search.Limit(1)
-	return newScope.Set("gorm:order_by_primary_key", "ASC").
+	return newScope.Set("aorm:order_by_primary_key", "ASC").
 		inlineCondition(where...).callCallbacks(s.parent.callbacks.queries).db
 }
 
@@ -342,28 +384,31 @@ func (s *DB) Take(out interface{}, where ...interface{}) *DB {
 func (s *DB) Last(out interface{}, where ...interface{}) *DB {
 	newScope := s.NewScope(out)
 	newScope.Search.Limit(1)
-	return newScope.Set("gorm:order_by_primary_key", "DESC").
+	return newScope.Set("aorm:order_by_primary_key", "DESC").
 		inlineCondition(where...).callCallbacks(s.parent.callbacks.queries).db
 }
 
 // Find find records that match given conditions
 func (s *DB) Find(out interface{}, where ...interface{}) *DB {
+	if t := indirectType(reflect.TypeOf(out)); t.Kind() == reflect.Array {
+		s = s.Limit(t.Len())
+	}
 	return s.NewScope(out).inlineCondition(where...).callCallbacks(s.parent.callbacks.queries).db
 }
 
 // Scan scan value to a struct
 func (s *DB) Scan(dest interface{}) *DB {
-	return s.NewScope(s.Value).Set("gorm:query_destination", dest).callCallbacks(s.parent.callbacks.queries).db
+	return s.NewScope(s.Val).Set("aorm:query_destination", dest).callCallbacks(s.parent.callbacks.queries).db
 }
 
 // Row return `*sql.Row` with given conditions
 func (s *DB) Row() *sql.Row {
-	return s.NewScope(s.Value).row()
+	return s.NewScope(s.Val).row()
 }
 
 // Rows return `*sql.Rows` with given conditions
 func (s *DB) Rows() (*sql.Rows, error) {
-	return s.NewScope(s.Value).rows()
+	return s.NewScope(s.Val).rows()
 }
 
 // ScanRows scan `*sql.Rows` to give struct
@@ -375,7 +420,7 @@ func (s *DB) ScanRows(rows *sql.Rows, result interface{}) error {
 	)
 
 	if clone.AddError(err) == nil {
-		scope.scan(rows, columns, scope.Fields(), result)
+		scope.scan(rows, columns, scope.Instance().Fields, result)
 	}
 
 	return clone.Error
@@ -385,24 +430,38 @@ func (s *DB) ScanRows(rows *sql.Rows, result interface{}) error {
 //     var ages []int64
 //     db.Find(&users).Pluck("age", &ages)
 func (s *DB) Pluck(column string, value interface{}) *DB {
-	return s.NewScope(s.Value).pluck(column, value).db
+	return s.NewScope(s.Val).pluck(column, value).db
 }
 
 // PluckFirst used to query single column from a first model result as a map
 //     var createAt time.Time
 //     db.Model(&User{}).Pluck("created_at", &createdAt)
 func (s *DB) PluckFirst(column string, value interface{}) *DB {
-	return s.NewScope(s.Value).pluckFirst(column, value).db
+	return s.NewScope(s.Val).pluckFirst(column, value).db
+}
+
+// Exists used to query single column from a first model result as a map
+//     var createAt time.Time
+//     db.Model(&User{}).Exists()
+func (s *DB) Exists(where ...interface{}) (ok bool, err error) {
+	return s.NewScope(s.Val).Set(OptSkipPreload, true).inlineCondition(where...).exists()
+}
+
+// ExistsValue used to query single column from a first model result as a map
+//     var createAt time.Time
+//     db.ExistsValue(&User{Name:"user name"})
+func (s *DB) ExistsValue(value interface{}, where ...interface{}) (ok bool, err error) {
+	return s.NewScope(value).inlineCondition(where...).exists()
 }
 
 // Count get how many records for a model
 func (s *DB) Count(value interface{}) *DB {
-	return s.NewScope(s.Value).count(value).db
+	return s.NewScope(s.Val).count(value).db
 }
 
 // Related get related associations
 func (s *DB) Related(value interface{}, foreignKeys ...string) *DB {
-	return s.NewScope(s.Value).related(value, foreignKeys...).db
+	return s.NewScope(s.Val).related(value, foreignKeys...).db
 }
 
 // FirstOrInit find first matched record or initialize a new one with given conditions (only works with struct, map conditions)
@@ -430,7 +489,7 @@ func (s *DB) FirstOrCreate(out interface{}, where ...interface{}) *DB {
 		}
 		return c.NewScope(out).inlineCondition(where...).initialize().callCallbacks(c.parent.callbacks.creates).db
 	} else if len(c.search.assignAttrs) > 0 {
-		return c.NewScope(out).InstanceSet("gorm:update_interface", c.search.assignAttrs).callCallbacks(c.parent.callbacks.updates).db
+		return c.NewScope(out).InstanceSet("aorm:update_interface", c.search.assignAttrs).callCallbacks(c.parent.callbacks.updates).db
 	}
 	return c
 }
@@ -442,9 +501,9 @@ func (s *DB) Update(attrs ...interface{}) *DB {
 
 // Updates update attributes with callbacks, refer: https://jinzhu.github.io/gorm/crud.html#update
 func (s *DB) Updates(values interface{}, ignoreProtectedAttrs ...bool) *DB {
-	return s.NewScope(s.Value).
-		Set("gorm:ignore_protected_attrs", len(ignoreProtectedAttrs) > 0).
-		InstanceSet("gorm:update_interface", values).
+	return s.NewScope(s.Val).
+		Set("aorm:ignore_protected_attrs", len(ignoreProtectedAttrs) > 0).
+		InstanceSet("aorm:update_interface", values).
 		callCallbacks(s.parent.callbacks.updates).db
 }
 
@@ -455,14 +514,14 @@ func (s *DB) UpdateColumn(attrs ...interface{}) *DB {
 
 // UpdateColumns update attributes without callbacks, refer: https://jinzhu.github.io/gorm/crud.html#update
 func (s *DB) UpdateColumns(values interface{}) *DB {
-	return s.NewScope(s.Value).
-		Set("gorm:update_column", true).
-		Set("gorm:save_associations", false).
-		InstanceSet("gorm:update_interface", values).
+	return s.NewScope(s.Val).
+		Set("aorm:update_column", true).
+		Set("aorm:save_associations", false).
+		InstanceSet("aorm:update_interface", values).
 		callCallbacks(s.parent.callbacks.updates).db
 }
 
-// Save update value in database, if the value doesn't have primary key, will insert it
+// Save update value in database, if the value doesn'T have primary key, will insert it
 func (s *DB) Save(value interface{}) *DB {
 	scope := s.NewScope(value)
 	if !scope.PrimaryKeyZero() {
@@ -488,7 +547,7 @@ func (s *DB) Delete(value interface{}, where ...interface{}) *DB {
 		callCallbacks(s.parent.callbacks.deletes).db
 }
 
-// Raw use raw sql as conditions, won't run it unless invoked by other methods
+// Raw use raw sql as conditions, won'T run it unless invoked by other methods
 //    db.Raw("SELECT name, age FROM users WHERE name = ?", 3).Scan(&result)
 func (s *DB) Raw(sql string, values ...interface{}) *DB {
 	return s.clone().search.Raw(true).Where(sql, values...).db
@@ -497,7 +556,12 @@ func (s *DB) Raw(sql string, values ...interface{}) *DB {
 // Exec execute raw sql
 func (s *DB) Exec(sql string, values ...interface{}) *DB {
 	scope := s.NewScope(nil)
-	generatedSQL := scope.buildCondition(map[string]interface{}{"query": sql, "args": values}, true)
+	q := (&Clause{sql, values}).BuildCondition(scope, true)
+	generatedSQL, err := q.Build(scope)
+	if err != nil {
+		scope.Err(err)
+		return scope.db
+	}
 	generatedSQL = strings.TrimSuffix(strings.TrimPrefix(generatedSQL, "("), ")")
 	scope.Raw(generatedSQL)
 	return scope.Exec().db
@@ -510,7 +574,7 @@ func (s *DB) Exec(sql string, values ...interface{}) *DB {
 //    db.Model(&user).Update("name", "hello")
 func (s *DB) Model(value interface{}) *DB {
 	c := s.clone()
-	c.Value = value
+	c.Val = value
 	return c
 }
 
@@ -518,7 +582,7 @@ func (s *DB) Model(value interface{}) *DB {
 func (s *DB) Table(name string) *DB {
 	clone := s.clone()
 	clone.search.Table(name)
-	clone.Value = nil
+	clone.Val = nil
 	return clone
 }
 
@@ -553,6 +617,43 @@ func (s *DB) Commit() *DB {
 	return s
 }
 
+// Transaction execute func `f` into transaction
+func (s *DB) Transaction(f func(db *DB) (err error)) (err error) {
+	s = s.Begin().Set("aorm:disable_scope_transaction", true)
+	defer func() {
+		if r := recover(); r != nil {
+			s.Rollback()
+			err = tracederror.New(errors.Wrap(r.(error), "transaction"))
+		} else if err != nil {
+			s.Rollback()
+			err = errors.Wrap(err, "transaction")
+		} else {
+			err = s.Commit().Error
+		}
+	}()
+	return f(s)
+}
+
+// RawTransaction execute func `f` into sql.Tx
+func (s *DB) RawTransaction(f func(tx *sql.Tx) (err error)) (err error) {
+	var tx *sql.Tx
+	if tx, err = s.db.(*sql.DB).Begin(); err != nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			err = tracederror.New(errors.Wrap(r.(error), "transaction"))
+		} else if err != nil {
+			tx.Rollback()
+			err = errors.Wrap(err, "transaction")
+		} else {
+			err = errors.Wrap(tx.Commit(), "commit")
+		}
+	}()
+	return f(tx)
+}
+
 // Rollback rollback a transaction
 func (s *DB) Rollback() *DB {
 	var emptySQLTx *sql.Tx
@@ -564,11 +665,6 @@ func (s *DB) Rollback() *DB {
 	return s
 }
 
-// NewRecord check if value's primary key is blank
-func (s *DB) NewRecord(value interface{}) bool {
-	return s.NewScope(value).PrimaryKeyZero()
-}
-
 // RecordNotFound check if returning ErrRecordNotFound error
 func (s *DB) RecordNotFound() bool {
 	if IsError(ErrRecordNotFound, s.GetErrors()...) {
@@ -577,137 +673,27 @@ func (s *DB) RecordNotFound() bool {
 	return false
 }
 
-// CreateTable create table for models
-func (s *DB) CreateTable(models ...interface{}) *DB {
-	db := s.Unscoped()
-	for _, model := range models {
-		db = db.NewScope(model).createTable().db
-	}
-	return db
-}
-
-// DropTable drop table for models
-func (s *DB) DropTable(values ...interface{}) *DB {
-	db := s.clone()
-	for _, value := range values {
-		if tableName, ok := value.(string); ok {
-			db = db.Table(tableName)
-		}
-
-		db = db.NewScope(value).dropTable().db
-	}
-	return db
-}
-
-// DropTableIfExists drop table if it is exist
-func (s *DB) DropTableIfExists(values ...interface{}) *DB {
-	db := s.clone()
-	for _, value := range values {
-		if s.HasTable(value) {
-			db.AddError(s.DropTable(value).Error)
-		}
-	}
-	return db
-}
-
-// HasTable check has table or not
-func (s *DB) HasTable(value interface{}) bool {
-	var (
-		scope     = s.NewScope(value)
-		tableName string
-	)
-
-	if name, ok := value.(string); ok {
-		tableName = name
-	} else {
-		tableName = scope.TableName()
-	}
-
-	has := scope.Dialect().HasTable(tableName)
-	s.AddError(scope.db.Error)
-	return has
-}
-
-// AutoMigrate run auto migration for given models, will only add missing fields, won't delete/change current data
-func (s *DB) AutoMigrate(values ...interface{}) *DB {
-	db := s.Unscoped()
-	for _, value := range values {
-		db = db.NewScope(value).autoMigrate().db
-	}
-	return db
-}
-
-// ModifyColumn modify column to type
-func (s *DB) ModifyColumn(column string, typ string) *DB {
-	scope := s.NewScope(s.Value)
-	scope.modifyColumn(column, typ)
-	return scope.db
-}
-
-// DropColumn drop a column
-func (s *DB) DropColumn(column string) *DB {
-	scope := s.NewScope(s.Value)
-	scope.dropColumn(column)
-	return scope.db
-}
-
-// AddIndex add index for columns with given name
-func (s *DB) AddIndex(indexName string, columns ...string) *DB {
-	scope := s.Unscoped().NewScope(s.Value)
-	scope.addIndex(false, indexName, columns...)
-	return scope.db
-}
-
-// AddUniqueIndex add unique index for columns with given name
-func (s *DB) AddUniqueIndex(indexName string, columns ...string) *DB {
-	scope := s.Unscoped().NewScope(s.Value)
-	scope.addIndex(true, indexName, columns...)
-	return scope.db
-}
-
-// RemoveIndex remove index with name
-func (s *DB) RemoveIndex(indexName string) *DB {
-	scope := s.NewScope(s.Value)
-	scope.removeIndex(indexName)
-	return scope.db
-}
-
-// AddForeignKey Add foreign key to the given scope, e.g:
-//     db.Model(&User{}).AddForeignKey("city_id", "cities(id)", "RESTRICT", "RESTRICT")
-func (s *DB) AddForeignKey(field string, dest string, onDelete string, onUpdate string) *DB {
-	scope := s.NewScope(s.Value)
-	scope.addForeignKey(field, dest, onDelete, onUpdate)
-	return scope.db
-}
-
-// RemoveForeignKey Remove foreign key from the given scope, e.g:
-//     db.Model(&User{}).RemoveForeignKey("city_id", "cities(id)")
-func (s *DB) RemoveForeignKey(field string, dest string) *DB {
-	scope := s.clone().NewScope(s.Value)
-	scope.removeForeignKey(field, dest)
-	return scope.db
-}
-
 // Association start `Association Mode` to handler relations things easir in that mode, refer: https://jinzhu.github.io/gorm/associations.html#association-mode
-func (s *DB) Association(column string) *Association {
+func (s *DB) Association(relatedFieldName string) *Association {
 	var err error
-	var scope = s.Set("gorm:association:source", s.Value).NewScope(s.Value)
-
-	if primaryField := scope.PrimaryField(); primaryField.IsBlank {
-		err = errors.New("primary key can't be nil")
+	var scope = s.Set("aorm:association:source", s.Val).NewScope(s.Val)
+	if scope.ID().IsZero() {
+		err = errors.New("primary key can'T be nil")
 	} else {
-		if field, ok := scope.FieldByName(column); ok {
+		s := scope.Struct()
+		if field, ok := s.FieldsByName[relatedFieldName]; ok {
 			if field.Relationship == nil || len(field.Relationship.ForeignFieldNames) == 0 {
-				err = fmt.Errorf("invalid association %v for %v", column, scope.IndirectValue().Type())
+				err = fmt.Errorf("invalid association %v for %v", relatedFieldName, scope.IndirectValue().Type())
 			} else {
-				return &Association{scope: scope, column: column, field: field}
+				f := s.InstanceOf(scope.Value, field.Name).Fields[0]
+				return &Association{scope: scope, column: relatedFieldName, field: f}
 			}
 		} else {
-			err = fmt.Errorf("%v doesn't have column %v", scope.IndirectValue().Type(), column)
+			err = fmt.Errorf("%v doesn'T have relatedFieldName %v", scope.IndirectValue().Type(), relatedFieldName)
 		}
 	}
 
-	return &Association{Error: err}
+	return (&Association{}).addErr(err)
 }
 
 // Preload preload associations with given conditions
@@ -749,7 +735,7 @@ func (s *DB) InlinePreloadFields(value interface{}, fields ...string) *DB {
 
 // AutoInlinePreload preload associations
 func (s *DB) AutoInlinePreload(value interface{}) *DB {
-	modelStruct := s.NewScope(value).GetModelStruct()
+	modelStruct := StructOf(value)
 	var fields []string
 
 	if data, ok := s.Get(InlinePreloadFieldsKeyOf(value)); ok {
@@ -758,8 +744,8 @@ func (s *DB) AutoInlinePreload(value interface{}) *DB {
 		}
 	} else {
 		if ipf, ok := value.(InlinePreloadFields); ok {
-			for _, fieldName := range ipf.GetGormInlinePreloadFields() {
-				if f, ok := modelStruct.StructFieldsByName[fieldName]; ok {
+			for _, fieldName := range ipf.GetAormInlinePreloadFields() {
+				if f, ok := modelStruct.FieldsByName[fieldName]; ok {
 					if f.Relationship != nil {
 						fields = append(fields, f.Name)
 					}
@@ -785,6 +771,11 @@ func (s *DB) AutoInlinePreload(value interface{}) *DB {
 	return s
 }
 
+// StoreBlankField set aorm:store_blank_field as true
+func (s *DB) StoreBlankField() *DB {
+	return s.clone().InstantSet(StoreBlankField, true)
+}
+
 // Set set setting by name, which could be used in callbacks, will clone a new db, and update its setting
 func (s *DB) Set(name string, value interface{}) *DB {
 	return s.clone().InstantSet(name, value)
@@ -792,29 +783,28 @@ func (s *DB) Set(name string, value interface{}) *DB {
 
 // InstantSet instant set setting, will affect current db
 func (s *DB) InstantSet(name string, value interface{}) *DB {
+	name = strings.ReplaceAll(name, "gorm:", "aorm:")
 	s.values[name] = value
 	return s
 }
 
 // Get get setting by name
 func (s *DB) Get(name string) (value interface{}, ok bool) {
+	name = strings.ReplaceAll(name, "gorm:", "aorm:")
 	value, ok = s.values[name]
 	return
 }
 
 // SetJoinTableHandler set a model's join table handler for a relation
 func (s *DB) SetJoinTableHandler(source interface{}, column string, handler JoinTableHandlerInterface) {
-	scope := s.NewScope(source)
-	for _, field := range scope.GetModelStruct().StructFields {
-		if field.Name == column || field.DBName == column {
-			if many2many := field.TagSettings["MANY2MANY"]; many2many != "" {
-				source := (&Scope{Value: source}).GetModelStruct().ModelType
-				destination := (&Scope{Value: reflect.New(field.Struct.Type).Interface()}).GetModelStruct().ModelType
-				handler.Setup(field.Relationship, many2many, source, destination)
-				field.Relationship.JoinTableHandler = handler
-				if table := handler.Table(s); scope.Dialect().HasTable(table) {
-					s.Table(table).AutoMigrate(handler)
-				}
+	sourceStruct := s.StructOf(source)
+	if field, ok := sourceStruct.FieldByName(column); ok {
+		if many2many := field.TagSettings["M2M"]; many2many != "" {
+			destination := StructOf(reflect.New(field.Struct.Type).Interface())
+			handler.Setup(field.Relationship, many2many, sourceStruct, destination)
+			field.Relationship.JoinTableHandler = handler
+			if table := handler.Table(s); s.Dialect().HasTable(table) {
+				s.Table(table).AutoMigrate(handler)
 			}
 		}
 	}
@@ -827,7 +817,7 @@ func (s *DB) AddError(err error) error {
 			if s.logMode == 0 {
 				s.print(fileWithLineNum() + ": " + err.Error())
 			} else {
-				s.log(err.Error())
+				s.log(err)
 			}
 
 			errors := Errors(s.GetErrors()).Add(err)
@@ -854,7 +844,7 @@ func (s *DB) GetErrors() []error {
 // ScopeErrorCallback register error callback for scope
 func (s *DB) ScopeErrorCallback(cb func(scope *Scope, err error)) *DB {
 	s = s.clone()
-	key := "gorm:scope_error_callbacks"
+	key := "aorm:scope_error_callbacks"
 	var callbacks []func(scope *Scope, err error)
 	if v, ok := s.Get(key); ok {
 		callbacks = append(callbacks, v.([]func(scope *Scope, err error))...)
@@ -868,54 +858,42 @@ func (s *DB) ScopeErrorCallback(cb func(scope *Scope, err error)) *DB {
 // Private Methods For DB
 ////////////////////////////////////////////////////////////////////////////////
 
-func (s *DB) clone() *DB {
-	db := &DB{
-		db:                s.db,
-		parent:            s.parent,
-		logger:            s.logger,
-		logMode:           s.logMode,
-		values:            map[string]interface{}{},
-		Value:             s.Value,
-		Error:             s.Error,
-		blockGlobalUpdate: s.blockGlobalUpdate,
-		path:              s.path,
-		dialect:           s.dialect,
-		assigners:         s.assigners,
-	}
-
+func (s DB) clone() *DB {
+	values := map[string]interface{}{}
 	for key, value := range s.values {
-		db.values[key] = value
+		values[key] = value
 	}
+	s.values = values
 
 	if s.search == nil {
-		db.search = &search{limit: -1, offset: -1}
+		s.search = &search{limit: -1, offset: -1}
 	} else {
-		db.search = s.search.clone()
+		s.search = s.search.clone()
 	}
 
-	db.search.db = db
-	return db
+	s.search.db = &s
+	return &s
 }
 
 func (s *DB) print(v ...interface{}) {
-	s.logger.Print(v...)
+	s.logger.Debug(v...)
 }
 
 func (s *DB) log(v ...interface{}) {
 	if s != nil && s.logMode == 2 {
-		s.print(append([]interface{}{"log", fileWithLineNum()}, v...)...)
+		s.logger.Info(append([]interface{}{fileWithLineNum()}, v...)...)
 	}
 }
 
 func (s *DB) slog(sql string, t time.Time, vars ...interface{}) {
 	if s.logMode == 2 {
-		s.print("sql", fileWithLineNum(), NowFunc().Sub(t), sql, vars, s.RowsAffected)
+		s.print("SQL", fileWithLineNum(), NowFunc().Sub(t), sql, vars, s.RowsAffected)
 	}
 }
 
 // Disable after scan callback. If typs not is empty, disable for typs, other else, disable for all
 func (s *DB) DisableAfterScanCallback(typs ...interface{}) *DB {
-	key := "gorm:disable_after_scan"
+	key := "aorm:disable_after_scan"
 
 	s = s.clone()
 
@@ -935,7 +913,7 @@ func (s *DB) DisableAfterScanCallback(typs ...interface{}) *DB {
 // Enable after scan callback. If typs not is empty, enable for typs, other else, enable for all.
 // The disabled types will not be enabled unless they are specifically informed.
 func (s *DB) EnableAfterScanCallback(typs ...interface{}) *DB {
-	key := "gorm:disable_after_scan"
+	key := "aorm:disable_after_scan"
 
 	s = s.clone()
 
@@ -955,7 +933,7 @@ func (s *DB) EnableAfterScanCallback(typs ...interface{}) *DB {
 // Return if after scan callbacks has be enable. If typs is empty, return default, other else, return for informed
 // typs.
 func (s *DB) IsEnabledAfterScanCallback(typs ...interface{}) (ok bool) {
-	key := "gorm:disable_after_scan"
+	key := "aorm:disable_after_scan"
 
 	if v, ok := s.values[key]; ok {
 		return !v.(bool)
@@ -1011,20 +989,34 @@ func (s *DB) RegisterAssigner(assigners ...Assigner) *DB {
 
 func (s *DB) GetAssigner(typ reflect.Type) (assigner Assigner) {
 	if s.assigners != nil {
-		assigner = s.assigners.GetAssigner(typ)
-		if assigner != nil {
+		if assigner = s.assigners.Get(typ); assigner != nil {
 			return
 		}
 	}
-	return s.dialect.GetAssigner(typ)
+	if assigner = s.dialect.GetAssigner(typ); assigner != nil {
+		return
+	}
+	return assigners.Get(typ)
+}
+
+func (s *DB) GetArgVariabler(arg interface{}) (argVar ArgBinder) {
+	var ok bool
+	if argVar, ok = arg.(ArgBinder); ok {
+		return
+	} else if assigner := s.GetAssigner(reflect.TypeOf(arg)); assigner != nil {
+		if argVar, ok = assigner.(ArgBinder); ok {
+			return
+		}
+	}
+	return
 }
 
 func (s *DB) SetSingleUpdate(v bool) *DB {
-	return s.Set("gorm:single_update", v)
+	return s.Set("aorm:single_update", v)
 }
 
 func (s *DB) SingleUpdate() bool {
-	if v, ok := s.values["gorm:single_update"]; !ok || v.(bool) {
+	if v, ok := s.values["aorm:single_update"]; !ok || v.(bool) {
 		return true
 	}
 	return false
@@ -1042,35 +1034,50 @@ func (s *DB) Loggers(tableName string, set ...bool) (clone *DB, sl *ScopeLoggers
 }
 
 func (s *DB) SetCurrentUser(user interface{}) *DB {
-	return s.Set("gorm:current_user", user)
+	return s.Set("aorm:current_user", user)
 }
 
 func (s *DB) GetCurrentUser() (user interface{}, ok bool) {
-	return s.Get("gorm:current_user")
+	return s.Get("aorm:current_user")
 }
 
-func (s *DB) GetCurrentUserID() (id string, ok bool) {
+func (s *DB) GetCurrentUserID() (id interface{}) {
 	var user interface{}
 	var hasUser bool
 
 	user, hasUser = s.GetCurrentUser()
 
 	if !hasUser {
-		return "", false
+		return
 	}
 
-	var currentUser string
 	switch ut := user.(type) {
 	case string:
-		return ut, currentUser != ""
+		if ut == "" {
+			return nil
+		}
+		return ut
 	case uint:
-		return strconv.Itoa(int(ut)), ut != 0
+		if ut == 0 {
+			return
+		}
+		return ut
 	default:
 		if primaryField := s.NewScope(user).PrimaryField(); primaryField != nil {
-			currentUser = fmt.Sprintf("%v", primaryField.Field.Interface())
-		} else {
-			currentUser = fmt.Sprintf("%v", user)
+			return primaryField.Field.Interface()
 		}
-		return currentUser, true
+		return user
 	}
+}
+
+func (s *DB) DefaultColumnValue(valuer func(scope *Scope, record interface{}, column string) interface{}) *DB {
+	s = s.clone()
+	s.search.defaultColumnValue = valuer
+	return s
+}
+
+func (s *DB) ColumnsScannerCallback(cb func(scope *Scope, record interface{}, columns []string, values []interface{})) *DB {
+	s = s.clone()
+	s.search.columnsScannerCallback = cb
+	return s
 }

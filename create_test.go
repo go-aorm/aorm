@@ -103,11 +103,11 @@ func TestCreateWithExistingTimestamp(t *testing.T) {
 
 type AutoIncrementUser struct {
 	User
-	Sequence uint `gorm:"AUTO_INCREMENT"`
+	Sequence uint `aorm:"AUTO_INCREMENT"`
 }
 
 func TestCreateWithAutoIncrement(t *testing.T) {
-	if dialect := os.Getenv("GORM_DIALECT"); dialect != "postgres" {
+	if dialect := os.Getenv("AORM_DIALECT"); dialect != "postgres" {
 		t.Skip("Skipping this because only postgres properly support auto_increment on a non-primary_key column")
 	}
 
@@ -124,15 +124,15 @@ func TestCreateWithAutoIncrement(t *testing.T) {
 	}
 }
 
-func TestCreateWithNoGORMPrimayKey(t *testing.T) {
-	if dialect := os.Getenv("GORM_DIALECT"); dialect == "mssql" {
+func TestCreateWithNoAORMPrimayKey(t *testing.T) {
+	if dialect := os.Getenv("AORM_DIALECT"); dialect == "mssql" {
 		t.Skip("Skipping this because MSSQL will return identity only if the table has an Id column")
 	}
 
 	jt := JoinTable{From: 1, To: 2}
 	err := DB.Create(&jt).Error
 	if err != nil {
-		t.Errorf("No error should happen when create a record without a GORM primary key. But in the database this primary key exists and is the union of 2 or more fields\n But got: %s", err)
+		t.Errorf("No error should happen when create a record without a AORM primary key. But in the database this primary key exists and is the union of 2 or more fields\n But got: %s", err)
 	}
 }
 
@@ -158,7 +158,7 @@ func TestCreateWithNoStdPrimaryKeyAndDefaultValues(t *testing.T) {
 	}
 
 	// We must fetch the value again, to have the default fields updated
-	// (We can't do this in the update statements, since sql default can be expressions
+	// (We can'T do this in the update statements, since sql default can be expressions
 	// And be different from the fields' type (eg. a time.Time fields has a default value of "now()"
 	DB.Model(Animal{}).Where(&Animal{Counter: an.Counter}).First(&an)
 

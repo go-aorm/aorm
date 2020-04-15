@@ -8,13 +8,21 @@ import (
 	"strings"
 )
 
+const (
+	OptSkipPreload = "aorm:skip_preload"
+	OptAutoPreload = "aorm:auto_preload"
+)
+
 // preloadCallback used to preload associations
 func preloadCallback(scope *Scope) {
-	if _, skip := scope.InstanceGet("gorm:skip_query_callback"); skip {
+	if scope.InstanceGetBool(OptSkipPreload) {
+		return
+	}
+	if scope.GetBool(OptSkipPreload) {
 		return
 	}
 
-	if _, ok := scope.Get("gorm:auto_preload"); ok {
+	if scope.GetBool(OptAutoPreload) {
 		autoPreload(scope)
 	}
 
@@ -24,7 +32,7 @@ func preloadCallback(scope *Scope) {
 
 	var (
 		preloadedMap = map[string]bool{}
-		fields       = scope.Fields()
+		fields       = scope.Instance()
 	)
 
 	for _, preload := range scope.Search.preload {
@@ -49,7 +57,7 @@ func preloadCallback(scope *Scope) {
 					currentOptions = preload.options
 				}
 
-				for _, field := range currentFields {
+				for _, field := range currentFields.Fields {
 					if field.Name != preloadField || field.Relationship == nil {
 						continue
 					}
@@ -72,16 +80,16 @@ func preloadCallback(scope *Scope) {
 				}
 
 				if !preloadedMap[preloadKey] {
-					scope.Err(fmt.Errorf("can't preload field %s for %s", preloadField, currentScope.GetModelStruct().ModelType))
+					scope.Err(fmt.Errorf("can'T preload field %s for %s", preloadField, currentScope.Struct().Type))
 					return
 				}
 			}
 
 			// preload next level
 			if idx < len(preloadFields)-1 {
-				currentScope = currentScope.getColumnAsScope(preloadField)
+				currentScope = currentScope.ScopeOfField(preloadField)
 				if currentScope != nil {
-					currentFields = currentScope.Fields()
+					currentFields = currentScope.Instance()
 				}
 			}
 		}
@@ -89,7 +97,7 @@ func preloadCallback(scope *Scope) {
 }
 
 func autoPreload(scope *Scope) {
-	for _, field := range scope.Fields() {
+	for _, field := range scope.Instance().Fields {
 		if field.Relationship == nil {
 			continue
 		}
@@ -275,8 +283,6 @@ func (scope *Scope) handleManyToManyPreload(field *Field, conditions *Conditions
 		relation         = field.Relationship
 		joinTableHandler = relation.JoinTableHandler
 		fieldType        = field.Struct.Type.Elem()
-		foreignKeyValue  interface{}
-		foreignKeyType   = reflect.ValueOf(&foreignKeyValue).Type()
 		linkHash         = map[string][]reflect.Value{}
 		isPtr            bool
 	)
@@ -286,10 +292,7 @@ func (scope *Scope) handleManyToManyPreload(field *Field, conditions *Conditions
 		fieldType = fieldType.Elem()
 	}
 
-	var sourceKeys = []string{}
-	for _, key := range joinTableHandler.SourceForeignKeys() {
-		sourceKeys = append(sourceKeys, key.DBName)
-	}
+	var sourceKeys = joinTableHandler.SourceForeignKeys()
 
 	// preload conditions
 	preloadDB := conditions.MergeTo(scope.NewDB())
@@ -313,28 +316,43 @@ func (scope *Scope) handleManyToManyPreload(field *Field, conditions *Conditions
 	columns, _ := rows.Columns()
 	for rows.Next() {
 		var (
-			elem   = reflect.New(fieldType).Elem()
-			fields = scope.New(elem.Addr().Interface()).Fields()
+			elem     = reflect.New(fieldType).Elem()
+			instance = InstanceOf(elem.Addr().Interface())
 		)
 
 		// register foreign keys in join tables
 		var joinTableFields []*Field
-		for _, sourceKey := range sourceKeys {
-			joinTableFields = append(joinTableFields, &Field{StructField: &StructField{DBName: sourceKey, IsNormal: true}, Field: reflect.New(foreignKeyType).Elem()})
+		for _, key := range sourceKeys {
+			joinTableFields = append(joinTableFields, &Field{
+				StructField: &StructField{
+					DBName:   key.DBName,
+					IsNormal: true,
+					Struct: reflect.StructField{
+						Type: key.AssociationField.Struct.Type,
+					},
+					Assigner: key.AssociationField.Assigner,
+				},
+				Field: instance.FieldsMap[key.AssociationField.Name].Field,
+			})
 		}
 
-		scope.scan(rows, columns, append(fields, joinTableFields...), nil)
+		scope.scan(rows, columns, append(instance.Fields, joinTableFields...), nil)
 
 		scope.New(elem.Addr().Interface()).
-			InstanceSet("gorm:skip_query_callback", true).
+			InstanceSet("aorm:skip_query_callback", true).
 			callCallbacks(scope.db.parent.callbacks.queries)
 
 		var foreignKeys = make([]interface{}, len(sourceKeys))
 		// generate hashed forkey keys in join table
 		for idx, joinTableField := range joinTableFields {
-			if !joinTableField.Field.IsNil() {
-				foreignKeys[idx] = joinTableField.Field.Elem().Interface()
+			f := joinTableField.Field
+			if f.Kind() == reflect.Ptr {
+				if f.IsNil() {
+					continue
+				}
+				f = f.Elem()
 			}
+			foreignKeys[idx] = f.Interface()
 		}
 		hashedSourceKeys := toString(foreignKeys)
 
@@ -356,30 +374,35 @@ func (scope *Scope) handleManyToManyPreload(field *Field, conditions *Conditions
 		foreignFieldNames  = []string{}
 	)
 
-	for _, dbName := range relation.ForeignFieldNames {
-		if field, ok := scope.FieldByName(dbName); ok {
-			foreignFieldNames = append(foreignFieldNames, field.Name)
+	for _, fieldName := range relation.ForeignFieldNames {
+		if _, ok := scope.instance.FieldsMap[fieldName]; ok {
+			foreignFieldNames = append(foreignFieldNames, fieldName)
 		}
 	}
 
 	if indirectScopeValue.Kind() == reflect.Slice {
 		for j := 0; j < indirectScopeValue.Len(); j++ {
 			object := indirect(indirectScopeValue.Index(j))
-			key := toString(getValueFromFields(object, foreignFieldNames))
+			key := toStringFields(object, foreignFieldNames)
 			fieldsSourceMap[key] = append(fieldsSourceMap[key], object.FieldByName(field.Name))
 		}
 	} else if indirectScopeValue.IsValid() {
-		key := toString(getValueFromFields(indirectScopeValue, foreignFieldNames))
+		key := toStringFields(indirectScopeValue, foreignFieldNames)
 		fieldsSourceMap[key] = append(fieldsSourceMap[key], indirectScopeValue.FieldByName(field.Name))
 	}
-	for source, link := range linkHash {
-		for i, field := range fieldsSourceMap[source] {
+	for source, fields := range fieldsSourceMap {
+		for _, f := range fields {
 			//If not 0 this means Value is a pointer and we already added preloaded models to it
-			if fieldsSourceMap[source][i].Len() != 0 {
+			if f.Len() != 0 {
 				continue
 			}
-			field.Set(reflect.Append(fieldsSourceMap[source][i], link...))
-		}
 
+			v := reflect.MakeSlice(f.Type(), 0, 0)
+			if len(linkHash[source]) > 0 {
+				v = reflect.Append(f, linkHash[source]...)
+			}
+
+			f.Set(v)
+		}
 	}
 }

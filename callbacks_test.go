@@ -19,7 +19,7 @@ func (s *Product) BeforeCreate() (err error) {
 
 func (s *Product) BeforeUpdate() (err error) {
 	if s.Code == "dont_update" {
-		err = errors.New("can't update")
+		err = errors.New("can'T update")
 	}
 	s.BeforeUpdateCallTimes = s.BeforeUpdateCallTimes + 1
 	return
@@ -27,7 +27,7 @@ func (s *Product) BeforeUpdate() (err error) {
 
 func (s *Product) BeforeSave() (err error) {
 	if s.Code == "dont_save" {
-		err = errors.New("can't save")
+		err = errors.New("can'T save")
 	}
 	s.BeforeSaveCallTimes = s.BeforeSaveCallTimes + 1
 	return
@@ -47,7 +47,7 @@ func (s *Product) AfterUpdate() {
 
 func (s *Product) AfterSave() (err error) {
 	if s.Code == "after_save_error" {
-		err = errors.New("can't save")
+		err = errors.New("can'T save")
 	}
 	s.AfterSaveCallTimes = s.AfterSaveCallTimes + 1
 	return
@@ -55,7 +55,7 @@ func (s *Product) AfterSave() (err error) {
 
 func (s *Product) BeforeDelete() (err error) {
 	if s.Code == "dont_delete" {
-		err = errors.New("can't delete")
+		err = errors.New("can'T delete")
 	}
 	s.BeforeDeleteCallTimes = s.BeforeDeleteCallTimes + 1
 	return
@@ -63,7 +63,7 @@ func (s *Product) BeforeDelete() (err error) {
 
 func (s *Product) AfterDelete() (err error) {
 	if s.Code == "after_delete_error" {
-		err = errors.New("can't delete")
+		err = errors.New("can'T delete")
 	}
 	s.AfterDeleteCallTimes = s.AfterDeleteCallTimes + 1
 	return
@@ -109,7 +109,7 @@ func TestRunCallbacks(t *testing.T) {
 	}
 
 	if DB.Where("Code = ?", "unique_code").First(&p).Error == nil {
-		t.Errorf("Can't find a deleted record")
+		t.Errorf("Can'T find a deleted record")
 	}
 }
 
@@ -172,6 +172,6 @@ func TestCallbacksWithErrors(t *testing.T) {
 
 	DB.Delete(&p5)
 	if err := DB.First(&Product{}, "code = ?", "after_delete_error").Error; err != nil {
-		t.Errorf("Record shouldn't be deleted because of an error happened in after delete callback")
+		t.Errorf("Record shouldn'T be deleted because of an error happened in after delete callback")
 	}
 }

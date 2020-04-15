@@ -26,8 +26,8 @@ var NowFunc = func() time.Time {
 var commonInitialisms = []string{"API", "ASCII", "CPU", "CSS", "DNS", "EOF", "GUID", "HTML", "HTTP", "HTTPS", "ID", "IP", "JSON", "LHS", "QPS", "RAM", "RHS", "RPC", "SLA", "SMTP", "SSH", "TLS", "TTL", "UID", "UI", "UUID", "URI", "URL", "UTF8", "VM", "XML", "XSRF", "XSS"}
 var commonInitialismsReplacer *strings.Replacer
 
-var goSrcRegexp = regexp.MustCompile(`moisespsena-go/aorm/.*.go`)
-var goTestRegexp = regexp.MustCompile(`moisespsena-go/aorm/.*test.go`)
+var goSrcRegexp = regexp.MustCompile(`moisespsena-go/aorm(@.*)?/.*.go`)
+var goTestRegexp = regexp.MustCompile(`moisespsena-go/aorm(@.*)?/.*test.go`)
 
 func init() {
 	var commonInitialismsForReplacer []string
@@ -35,6 +35,11 @@ func init() {
 		commonInitialismsForReplacer = append(commonInitialismsForReplacer, initialism, strings.Title(strings.ToLower(initialism)))
 	}
 	commonInitialismsReplacer = strings.NewReplacer(commonInitialismsForReplacer...)
+}
+
+type KVStorager interface {
+	Set(key string, value string)
+	Get(key string) string
 }
 
 type safeMap struct {
@@ -66,6 +71,101 @@ const (
 	lower strCase = false
 	upper strCase = true
 )
+
+type SafeNameBuilder struct {
+	Cache             KVStorager
+	PreFormat, Format func(v string) string
+}
+
+func NewSafeNameBuilder(cache KVStorager, format ...func(v string) string) *SafeNameBuilder {
+	if cache == nil {
+		cache = smap
+	}
+	s := &SafeNameBuilder{Cache: cache}
+	for _, s.Format = range format {
+	}
+	return s
+
+}
+
+func (this *SafeNameBuilder) Build(name string) string {
+	if name == "" {
+		return ""
+	}
+	if v := this.Cache.Get(name); v != "" {
+		return v
+	}
+	s := this.build(name)
+	this.Cache.Set(name, s)
+	return s
+}
+
+func (this *SafeNameBuilder) BuildParts(name string, sep string) string {
+	if name == "" {
+		return ""
+	}
+	if v := this.Cache.Get(name); v != "" {
+		return v
+	}
+	parts := strings.Split(name, sep)
+	for i := range parts {
+		parts[i] = this.build(parts[i])
+	}
+	s := strings.Join(parts, sep)
+	this.Cache.Set(name, s)
+	return s
+}
+
+func (this *SafeNameBuilder) build(name string) string {
+	if this.PreFormat != nil {
+		name = this.PreFormat(name)
+	}
+	var (
+		value = commonInitialismsReplacer.Replace(name)
+		buf   = bytes.NewBufferString("")
+
+		lastCase, currCase,
+		nextCase, nextNumber strCase
+	)
+
+	for i, v := range value[:len(value)-1] {
+		nextCase = strCase(value[i+1] >= 'A' && value[i+1] <= 'Z')
+		nextNumber = strCase(value[i+1] >= '0' && value[i+1] <= '9')
+
+		if i > 0 {
+			if currCase == upper {
+				if lastCase == upper && (nextCase == upper || nextNumber == upper) {
+					buf.WriteRune(v)
+				} else {
+					if value[i-1] != '_' && value[i+1] != '_' {
+						buf.WriteRune('_')
+					}
+					buf.WriteRune(v)
+				}
+			} else {
+				buf.WriteRune(v)
+				if i == len(value)-2 && (nextCase == upper && nextNumber == lower) {
+					buf.WriteRune('_')
+				}
+			}
+		} else {
+			currCase = upper
+			buf.WriteRune(v)
+		}
+		lastCase = currCase
+		currCase = nextCase
+	}
+
+	buf.WriteByte(value[len(value)-1])
+
+	s := strings.ToLower(buf.String())
+	if this.Format != nil {
+		s = this.Format(s)
+	}
+	return s
+}
+
+var snb = NewSafeNameBuilder(nil)
 
 // ToDBName convert string to db name
 func ToDBName(name string) string {
@@ -118,20 +218,14 @@ func ToDBName(name string) string {
 	return s
 }
 
-// SQL expression
-type expr struct {
-	expr string
-	args []interface{}
-}
-
 // Expr generate raw SQL expression, for example:
 //     DB.Model(&product).Update("price", aorm.Expr("price * ? + ?", 2, 100))
-func Expr(expression string, args ...interface{}) *expr {
-	return &expr{expr: expression, args: args}
+func Expr(expression string, args ...interface{}) *Query {
+	return &Query{expression, args}
 }
 
 func indirect(reflectValue reflect.Value) reflect.Value {
-	for reflectValue.Kind() == reflect.Ptr {
+	for reflectValue.Kind() == reflect.Ptr || reflectValue.Kind() == reflect.Interface {
 		reflectValue = reflectValue.Elem()
 	}
 	return reflectValue
@@ -272,7 +366,7 @@ func fileWithLineNum() string {
 	return ""
 }
 
-func isBlank(value reflect.Value) bool {
+func IsBlank(value reflect.Value) bool {
 	switch value.Kind() {
 	case reflect.String:
 		return value.Len() == 0
@@ -313,16 +407,36 @@ func equalAsString(a interface{}, b interface{}) bool {
 }
 
 func toString(str interface{}) string {
-	if values, ok := str.([]interface{}); ok {
+	switch t := str.(type) {
+	case []interface{}:
 		var results []string
-		for _, value := range values {
+		for _, value := range t {
 			results = append(results, toString(value))
 		}
 		return strings.Join(results, "_")
-	} else if bytes, ok := str.([]byte); ok {
-		return string(bytes)
-	} else if reflectValue := reflect.Indirect(reflect.ValueOf(str)); reflectValue.IsValid() {
-		return fmt.Sprintf("%v", reflectValue.Interface())
+	case []byte:
+		return string(t)
+	case interface{ AsBytes() []byte }:
+		return toString(t.AsBytes())
+	case interface{ Bytes() []byte }:
+		return toString(t.Bytes())
+	case reflect.Value:
+		if t.IsValid() {
+			switch t.Kind() {
+			case reflect.Array:
+				l := t.Len()
+				var newV = reflect.New(t.Type())
+				newV.Elem().Set(t)
+				t = newV.Elem().Slice(0, l)
+				return toString(t.Interface())
+			default:
+				if t = reflect.Indirect(t); t.IsValid() {
+					return fmt.Sprintf("%v", t.Interface())
+				}
+			}
+		}
+	default:
+		return toString(reflect.ValueOf(str))
 	}
 	return ""
 }
@@ -338,13 +452,17 @@ func TupleQueryArgs(argCount int) (query string) {
 }
 
 func makeSlice(elemType reflect.Type) interface{} {
+	return makeSliceValue(elemType).Interface()
+}
+
+func makeSliceValue(elemType reflect.Type) reflect.Value {
 	if elemType.Kind() == reflect.Slice {
 		elemType = elemType.Elem()
 	}
 	sliceType := reflect.SliceOf(elemType)
 	slice := reflect.New(sliceType)
 	slice.Elem().Set(reflect.MakeSlice(sliceType, 0, 0))
-	return slice.Interface()
+	return slice
 }
 
 func strInSlice(a string, list []string) bool {
@@ -360,7 +478,7 @@ func strInSlice(a string, list []string) bool {
 func getValueFromFields(value reflect.Value, fieldNames []string) (results []interface{}) {
 	// If value is a nil pointer, Indirect returns a zero Value!
 	// Therefor we need to check for a zero value,
-	// as FieldByName could panic
+	// as CreateFieldByName could panic
 	if indirectValue := reflect.Indirect(value); indirectValue.IsValid() {
 		for _, fieldName := range fieldNames {
 			if fieldValue := indirectValue.FieldByName(fieldName); fieldValue.IsValid() {
@@ -373,6 +491,30 @@ func getValueFromFields(value reflect.Value, fieldNames []string) (results []int
 		}
 	}
 	return
+}
+
+// toStringFields return given fields's as string value
+func toStringFields(value reflect.Value, fieldNames []string) string {
+	var w bytes.Buffer
+	// If value is a nil pointer, Indirect returns a zero Value!
+	// Therefor we need to check for a zero value,
+	// as CreateFieldByName could panic
+	if indirectValue := reflect.Indirect(value); indirectValue.IsValid() {
+		for _, fieldName := range fieldNames {
+			if fieldValue := indirectValue.FieldByName(fieldName); fieldValue.IsValid() {
+				s := toString(fieldValue.Interface())
+				if s == "" {
+					continue
+				}
+				if w.Len() == 0 {
+					w.WriteString(s)
+				} else {
+					w.WriteString("_" + s)
+				}
+			}
+		}
+	}
+	return w.String()
 }
 
 func addExtraSpaceIfExist(str string) string {
@@ -404,57 +546,182 @@ type Alias struct {
 	Name string
 }
 
-func SQLToString(query string, args ...interface{}) string {
-	if query == "" {
-		return ""
+func BindVarStructure(dialect Dialector, field *FieldStructure, replacement string) string {
+	var (
+		reflectType = field.Type
+		assigner    = field.Assigner
+	)
+	for reflectType.Kind() == reflect.Ptr {
+		reflectType = reflectType.Elem()
 	}
-	var b bytes.Buffer
-	b.WriteString("<< " + query + " >>")
-	if len(args) > 0 {
-		b.WriteString("\nArgs:\n")
 
-		for i, arg := range args {
-			if arg == nil {
-				fmt.Fprintf(&b,"  - %D: <nil>\n", i)
-				continue
-			}
-			typ := reflect.TypeOf(arg)
-			line := fmt.Sprintf("  - %d: %v[%s] ", i, indirectType(typ).PkgPath(), typ)
-			if isNil(reflect.ValueOf(arg)) {
-				b.WriteString(line + "<nil>\n")
-			} else {
-				var empty bool
-				switch at := arg.(type) {
-				case string:
-					if at == "" {
-						empty = true
-					}
-				case *string:
-					if *at == "" {
-						empty = true
-					}
-				case driver.Valuer:
-					if v, err := at.Value(); err == nil && fmt.Sprint(v) == "" {
-						empty = true
-					}
-				case Zeroer:
-					if at.IsZero() {
-						empty = true
-					}
-				}
-				if empty {
-					b.WriteString(line + "<empty>\n")
-					continue
-				}
-				switch at := arg.(type) {
-				case time.Time:
-					arg = at.Format("2006-01-02T15:04:05-0700")
-				case *time.Time:
-					arg = at.Format("2006-01-02T15:04:05-0700")
-				}
-				b.WriteString(line + fmt.Sprint(arg) + "\n")
-			}
+	if assigner == nil {
+		assigner = Assigners().Get(reflectType)
+	}
+	return BindVar(dialect, assigner, reflect.Indirect(reflect.New(reflectType)), replacement)
+}
+
+func BindVar(dialect Dialector, assigner Assigner, value interface{}, replacement string) string {
+	if binder, ok := value.(ArgBinder); ok {
+		return binder.DbBindVar(dialect, replacement)
+	} else if assigner != nil {
+		if binder, ok := assigner.(ArgBinder); ok {
+			return binder.DbBindVar(dialect, replacement)
 		}
 	}
-	return b.String()
+	return replacement
+}
+
+func SetZero(rvalue reflect.Value) {
+	if reseter, ok := rvalue.Addr().Interface().(Reseter); ok {
+		reseter.Reset()
+	} else {
+		rvalue.Set(reflect.Zero(rvalue.Type()))
+	}
+}
+
+func SetNonZero(rvalue reflect.Value, value interface{}) {
+	if rvalue.Kind() == reflect.Ptr {
+		newValue := reflect.New(rvalue.Type().Elem())
+		newValue.Elem().Set(reflect.ValueOf(value))
+		rvalue.Set(newValue)
+	} else {
+		rvalue.Set(reflect.ValueOf(value))
+	}
+}
+
+func IsManyResult(dst interface{}) (many bool) {
+	typ := reflect.TypeOf(dst)
+	for {
+		switch typ.Kind() {
+		case reflect.Ptr:
+			typ = typ.Elem()
+		case reflect.Slice, reflect.Chan, reflect.Array:
+			return true
+		default:
+			return false
+		}
+	}
+}
+
+type AormNonFieldStructor interface {
+	AormNonFieldStructor()
+}
+
+func StructTypeOf(value reflect.Type) (typ reflect.Type, many, ptr bool) {
+	typ = value
+	for {
+		switch typ.Kind() {
+		case reflect.Interface:
+			typ = typ.Elem()
+		case reflect.Ptr:
+			ptr = true
+			typ = typ.Elem()
+		case reflect.Slice, reflect.Chan, reflect.Array:
+			many = true
+			ptr = false
+			typ = typ.Elem()
+		case reflect.Struct:
+			if reflect.PtrTo(typ).Implements(reflect.TypeOf((*driver.Valuer)(nil)).Elem()) {
+				if !reflect.PtrTo(typ).Implements(reflect.TypeOf((*AormNonFieldStructor)(nil)).Elem()) {
+					// is a field type
+					return nil, false, false
+				}
+			}
+			return
+		default:
+			return nil, false, false
+		}
+	}
+}
+
+func StructTypeOfInterface(value interface{}) (typ reflect.Type, many, ptr bool) {
+	var rtyp reflect.Type
+	switch t := value.(type) {
+	case reflect.Type:
+		rtyp = t
+	case reflect.Value:
+		rtyp = t.Type()
+	default:
+		rtyp = reflect.TypeOf(t)
+	}
+	return StructTypeOf(rtyp)
+}
+
+func SenderOf(value reflect.Value) (send func(el reflect.Value)) {
+	if value.Kind() != reflect.Ptr {
+		panic("unaddressable value")
+	}
+
+	typ := value.Type().Elem()
+	switch typ.Kind() {
+	case reflect.Array:
+		var i int
+		value = value.Elem()
+		value.Set(reflect.New(value.Type()))
+
+		if typ.Elem().Kind() == reflect.Ptr {
+			send = func(el reflect.Value) {
+				value.Index(i).Set(el.Addr())
+				i++
+			}
+		} else {
+			send = func(el reflect.Value) {
+				value.Index(i).Set(el)
+				i++
+			}
+		}
+		return
+	case reflect.Slice:
+		value.Elem().Set(reflect.MakeSlice(typ, 0, 0))
+		value = value.Elem()
+
+		if typ.Elem().Kind() == reflect.Ptr {
+			send = func(el reflect.Value) {
+				if el.Kind() == reflect.Ptr {
+					value.Set(reflect.Append(value, el))
+				} else {
+					value.Set(reflect.Append(value, el.Addr()))
+				}
+			}
+		} else {
+			send = func(el reflect.Value) {
+				if el.Kind() == reflect.Ptr {
+					value.Set(reflect.Append(value, el.Elem()))
+				} else {
+					value.Set(reflect.Append(value, el))
+				}
+			}
+		}
+		return
+	case reflect.Chan:
+		value = value.Elem()
+		if typ.Elem().Kind() == reflect.Ptr {
+			send = func(el reflect.Value) {
+				value.Send(el.Addr())
+			}
+		} else {
+			send = func(el reflect.Value) {
+				value.Send(el)
+			}
+		}
+		return
+	default:
+		return
+	}
+}
+
+func checkTruth(value interface{}) bool {
+	if v, ok := value.(bool); ok && !v {
+		return false
+	}
+
+	if v, ok := value.(string); ok {
+		v = strings.ToLower(v)
+		if v == "false" || v != "skip" {
+			return false
+		}
+	}
+
+	return true
 }

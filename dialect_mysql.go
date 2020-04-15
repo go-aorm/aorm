@@ -23,12 +23,12 @@ func (mysql) GetName() string {
 	return "mysql"
 }
 
-func (mysql) Quote(key string) string {
-	return fmt.Sprintf("`%s`", key)
+func (mysql) QuoteChar() rune {
+	return '`'
 }
 
-// Get Data Type for MySQL Dialect
-func (s *mysql) DataTypeOf(field *StructField) string {
+// Get Data Type for MySQL Dialector
+func (s *mysql) DataTypeOf(field *FieldStructure) string {
 	var dataValue, sqlType, size, additionalType = ParseFieldStructForDialect(field, s)
 
 	// MySQL allows only one auto increment column per table, and it must
@@ -115,6 +115,11 @@ func (s *mysql) DataTypeOf(field *StructField) string {
 				}
 			}
 		}
+	} else if size > 0 {
+		switch sqlType {
+		case "CHAR", "VARCHAR":
+			sqlType += fmt.Sprintf("(%d)", size)
+		}
 	}
 
 	if sqlType == "" {
@@ -128,7 +133,7 @@ func (s *mysql) DataTypeOf(field *StructField) string {
 }
 
 func (s mysql) RemoveIndex(tableName string, indexName string) error {
-	_, err := s.db.Exec(fmt.Sprintf("DROP INDEX %v ON %v", indexName, s.Quote(tableName)))
+	_, err := s.db.Exec(fmt.Sprintf("DROP INDEX %v ON %v", indexName, Quote(s, tableName)))
 	return err
 }
 
@@ -188,4 +193,15 @@ func (s mysql) BuildKeyName(kind, tableName string, fields ...string) string {
 
 func (mysql) DefaultValueStr() string {
 	return "VALUES()"
+}
+
+func (d mysql) DuplicateUniqueIndexError(indexes IndexMap, tableName string, sqlErr error) (err error) {
+	msg := sqlErr.Error()
+	if strings.Contains(msg, "Duplicate entry") && msg[len(msg)-1] == '\'' {
+		index_name := msg[strings.LastIndexByte(msg[0:len(msg)-1], '\'')+1:]
+		if index := indexes.FromDbName(d, tableName, index_name); index != nil {
+			return &DuplicateUniqueIndexError{index, sqlErr}
+		}
+	}
+	return sqlErr
 }
