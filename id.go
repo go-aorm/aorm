@@ -15,26 +15,12 @@ type Id struct {
 	exclude   bool
 }
 
+func NewValuedId(values ...IDValuer) *Id {
+	return &Id{fields: make([]*StructField, len(values), len(values)), values: values}
+}
+
 func NewId(fields []*StructField, values []IDValuer) *Id {
 	return &Id{fields: fields, values: values}
-}
-
-func (this Id) Field() *StructField {
-	if len(this.fields) == 1 {
-		return this.fields[0]
-	}
-	return nil
-}
-
-func (this Id) Value() IDValuer {
-	if len(this.values) == 1 {
-		return this.values[0]
-	}
-	return nil
-}
-
-func (this Id) Raw() interface{} {
-	return this.Value().Raw()
 }
 
 func (this Id) SetValue(value ...interface{}) (_ ID, err error) {
@@ -104,7 +90,7 @@ func (this Id) SetTo(recorde interface{}) interface{} {
 	if rv, ok = recorde.(reflect.Value); !ok {
 		rv = reflect.ValueOf(recorde)
 	}
-	rv = reflect.Indirect(rv)
+	rv = indirect(rv)
 
 	for i, f := range this.Fields() {
 		frv := rv.FieldByIndex(f.StructIndex)
@@ -161,7 +147,7 @@ func (this idSliceScoper) Exclude() idSliceScoper {
 }
 
 func (this idSliceScoper) WhereClause(scope *Scope) (result Query) {
-	tbName := scope.TableName()
+	tbName := scope.TableName() + "."
 	var q []string
 	for _, id := range this.values {
 		switch t := id.(type) {

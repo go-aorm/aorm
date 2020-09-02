@@ -13,7 +13,7 @@ func commitOrRollbackTransactionCallback(scope *Scope) {
 }
 
 func saveAssociationCheck(scope *Scope, field *Field) (autoUpdate bool, autoCreate bool, saveReference bool, r *Relationship) {
-	if scope.changeableField(field) && !field.IsBlank && !field.IsIgnored {
+	if scope.changeableField(field) && !field.IsBlank && !field.IsIgnored && (!field.IsChild || field.Relationship.Kind == "has_many") {
 		if r = field.Relationship; r != nil {
 			autoUpdate, autoCreate, saveReference = true, true, true
 
@@ -87,21 +87,24 @@ func saveAfterAssociationsCallback(scope *Scope) {
 	for _, field := range scope.Instance().RelatedFields() {
 		autoUpdate, autoCreate, saveReference, relationship := saveAssociationCheck(scope, field)
 
-		if relationship != nil && (relationship.Kind == "has_one" || relationship.Kind == "has_many" || relationship.Kind == "many_to_many") {
+		if relationship != nil && (relationship.Model.Parent == nil || relationship.Kind == "has_many") && (relationship.Kind == "has_one" || relationship.Kind == "has_many" || relationship.Kind == "many_to_many") {
 			value := field.Field
 
 			switch value.Kind() {
 			case reflect.Slice:
 				for i := 0; i < value.Len(); i++ {
-					newDB := scope.NewDB()
+					newDB := scope.NewDB().ModelStruct(relationship.Model)
 					elem := value.Index(i).Addr().Interface()
-					newScope := newDB.NewScope(elem)
+					newScope := newDB.NewModelScope(field.Model, elem)
 
 					if saveReference {
 						if relationship.JoinTableHandler == nil && len(relationship.ForeignFieldNames) != 0 {
+							if ID := relationship.Model.GetID(elem); !ID.IsZero() {
+								relationship.SetRelatedID(elem, ID)
+							}
 							for idx, fieldName := range relationship.ForeignFieldNames {
-								associationForeignName := relationship.AssociationForeignDBNames[idx]
-								if f, ok := scope.FieldByName(associationForeignName); ok {
+								associationForeignName := relationship.AssociationForeignFieldNames[idx]
+								if f, ok := scope.instance.FieldsMap[associationForeignName]; ok {
 									scope.Err(newScope.SetColumn(fieldName, f.Field.Interface()))
 								}
 							}

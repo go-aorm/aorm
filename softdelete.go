@@ -1,8 +1,9 @@
 package aorm
 
 import (
-	"github.com/moisespsena-go/bid"
 	"time"
+
+	"github.com/moisespsena-go/bid"
 )
 
 const (
@@ -21,6 +22,15 @@ var (
 
 	AuditedSDFields = append(append([]string{}, AuditedFields...), SoftDeleteFields...)
 )
+
+func IsAuditedSdField(fieldName string) bool {
+	for _, name := range AuditedSDFields {
+		if name == fieldName {
+			return true
+		}
+	}
+	return false
+}
 
 type SoftDelete struct {
 	DeletedAt *time.Time `sql:"index"`

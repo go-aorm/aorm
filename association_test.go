@@ -22,7 +22,7 @@ func TestBelongsTo(t *testing.T) {
 		t.Error("Got errors when save post", err)
 	}
 
-	if post.Category.ID == 0 || post.MainCategory.ID == 0 {
+	if post.Category.ID.IsZero() || post.MainCategory.ID.IsZero() {
 		t.Errorf("Category's primary key should be updated")
 	}
 
@@ -63,7 +63,7 @@ func TestBelongsTo(t *testing.T) {
 	}
 	DB.Model(&post).Association("Category").Append(&category2)
 
-	if category2.ID == 0 {
+	if category2.ID.IsZero() {
 		t.Errorf("Category should has BID when created with Append")
 	}
 
@@ -84,7 +84,7 @@ func TestBelongsTo(t *testing.T) {
 	}
 	DB.Model(&post).Association("Category").Replace(&category3)
 
-	if category3.ID == 0 {
+	if category3.ID.IsZero() {
 		t.Errorf("Category should has BID when created with Replace")
 	}
 
@@ -167,7 +167,7 @@ func TestBelongsTo(t *testing.T) {
 		t.Errorf("Post's category count should be 0 after the category has been deleted, but got %v", count)
 	}
 
-	if err := DB.Model(&post).Association("Category").Find(&Category{}).error; err == nil {
+	if err := DB.Model(&post).Association("Category").Find(&Category{}).Error(); err == nil {
 		t.Errorf("Post's category is not findable after Delete")
 	}
 
@@ -175,7 +175,7 @@ func TestBelongsTo(t *testing.T) {
 		t.Errorf("Post's category count should be 1 when query with Unscoped, but got %v", count)
 	}
 
-	if err := DB.Unscoped().Model(&post).Association("Category").Find(&Category{}).error; err != nil {
+	if err := DB.Unscoped().Model(&post).Association("Category").Find(&Category{}).Error(); err != nil {
 		t.Errorf("Post's category should be findable when query with Unscoped, got %v", err)
 	}
 }
@@ -356,7 +356,7 @@ func TestHasOne(t *testing.T) {
 		t.Errorf("User's credit card count should be 0 after credit card deleted, but got %v", count)
 	}
 
-	if err := DB.Model(&user).Association("CreditCard").Find(&CreditCard{}).error; err == nil {
+	if err := DB.Model(&user).Association("CreditCard").Find(&CreditCard{}).Error(); err == nil {
 		t.Errorf("User's creditcard is not findable after Delete")
 	}
 
@@ -364,7 +364,7 @@ func TestHasOne(t *testing.T) {
 		t.Errorf("User's credit card count should be 1 when query with Unscoped, but got %v", count)
 	}
 
-	if err := DB.Unscoped().Model(&user).Association("CreditCard").Find(&CreditCard{}).error; err != nil {
+	if err := DB.Unscoped().Model(&user).Association("CreditCard").Find(&CreditCard{}).Error(); err != nil {
 		t.Errorf("User's creditcard should be findable when query with Unscoped, got %v", err)
 	}
 }
@@ -780,7 +780,7 @@ func TestRelated(t *testing.T) {
 
 	user1 = User{}
 	DB.Model(&address1).Related(&user1, "BillingAddressId")
-	if DB.NewRecord(user1) {
+	if aorm.ZeroIdOf(&user) {
 		t.Errorf("Should get user from address correctly")
 	}
 

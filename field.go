@@ -11,9 +11,14 @@ import (
 // Field model field definition
 type Field struct {
 	*StructField
-	IsBlank bool
-	Field   reflect.Value
-	scaner  Scanner
+	IsBlank              bool
+	Field                reflect.Value
+	scaner               Scanner
+	afterScanerCallbacks []func(scope *Scope, this *Field)
+}
+
+func (this *Field) AfterScaner(f ...func(scope *Scope, this *Field)) {
+	this.afterScanerCallbacks = append(this.afterScanerCallbacks, f...)
 }
 
 func (this *Field) CallMethodCallbackArgs(name string, object reflect.Value, in []reflect.Value) {

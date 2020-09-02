@@ -50,7 +50,6 @@ func queryCallback(scope *Scope) {
 	if sender != nil {
 		if results.Elem().Kind() == reflect.Chan {
 			results = results.Elem()
-			defer results.Close()
 		}
 	} else {
 		results = results.Elem()
@@ -68,6 +67,7 @@ func queryCallback(scope *Scope) {
 	if scope.HasError() {
 		return
 	}
+
 	scope.db.RowsAffected = 0
 	if str, ok := scope.Get("aorm:query_option"); ok {
 		scope.Query.Query += addExtraSpaceIfExist(fmt.Sprint(str))

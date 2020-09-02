@@ -51,13 +51,24 @@ func (s *DB) HasTable(value interface{}) bool {
 	return has
 }
 
+func (s *DB) Migrator() *Migrator {
+	return NewMigrator(s.Unscoped())
+}
+
 // AutoMigrate run auto migration for given models, will only add missing fields, won'T delete/change current data
 func (s *DB) AutoMigrate(values ...interface{}) *DB {
-	db := s.Unscoped()
-	for _, value := range values {
-		db = db.NewScope(value).autoMigrate().db
+	if s.migrator == nil {
+		panic("no migrator")
 	}
-	return db
+	return s.autoMigrate(values...)
+}
+
+func (s *DB) autoMigrate(values ...interface{}) *DB {
+	for _, value := range values {
+		scope := s.NewScope(value)
+		s = scope.autoMigrate(nil).db
+	}
+	return s
 }
 
 // ModifyColumn modify column to type

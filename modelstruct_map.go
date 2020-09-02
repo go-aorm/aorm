@@ -18,6 +18,12 @@ func (s *safeModelStructsMap) Set(key reflect.Type, value *ModelStruct) {
 	s.m[key] = value
 }
 
+func (s *safeModelStructsMap) delete(key reflect.Type) {
+	s.l.Lock()
+	defer s.l.Unlock()
+	delete(s.m, key)
+}
+
 func (s *safeModelStructsMap) Get(key reflect.Type) *ModelStruct {
 	s.l.RLock()
 	defer s.l.RUnlock()

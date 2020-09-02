@@ -18,10 +18,7 @@ type (
 		fmt.Stringer
 		Bytes() []byte
 		Fields() []*StructField
-		Field() *StructField
 		Values() []IDValuer
-		Value() IDValuer
-		Raw() interface{}
 		SetValue(value ...interface{}) (ID, error)
 		SetTo(recorde interface{}) interface{}
 		Exclude() ID
@@ -35,5 +32,9 @@ type (
 	IDValueRawConverter interface {
 		FromRaw(raw interface{}) IDValuer
 		ToRaw(value IDValuer) interface{}
+	}
+
+	IDGenerator interface {
+		AormGenerateID() ID
 	}
 )

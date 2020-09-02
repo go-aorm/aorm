@@ -48,7 +48,7 @@ func (clause *Clause) BuildCondition(scope *Scope, include bool) (result Query) 
 		result = value.WhereClause(scope)
 		result.AddArgs(clause.Args...)
 		return
-	/*case *WithInlineQuery:
+	/*case *FieldPathQuery:
 	defer func() {
 		clause.Query = value
 	}()

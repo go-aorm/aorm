@@ -8,21 +8,16 @@ import (
 	"strings"
 )
 
-const (
-	OptSkipPreload = "aorm:skip_preload"
-	OptAutoPreload = "aorm:auto_preload"
-)
-
 // preloadCallback used to preload associations
 func preloadCallback(scope *Scope) {
-	if scope.InstanceGetBool(OptSkipPreload) {
+	if scope.InstanceGetBool(OptKeySkipPreload) {
 		return
 	}
-	if scope.GetBool(OptSkipPreload) {
+	if scope.GetBool(OptKeySkipPreload) {
 		return
 	}
 
-	if scope.GetBool(OptAutoPreload) {
+	if scope.GetBool(OptKeyAutoPreload) {
 		autoPreload(scope)
 	}
 
@@ -33,7 +28,17 @@ func preloadCallback(scope *Scope) {
 	var (
 		preloadedMap = map[string]bool{}
 		fields       = scope.Instance()
+		oldes        = scope.Search.extraSelects
+		oldesf       = scope.Search.extraSelectsFields
 	)
+
+	scope.Search.extraSelects = nil
+	scope.Search.extraSelectsFields = nil
+
+	defer func() {
+		scope.Search.extraSelects = oldes
+		scope.Search.extraSelectsFields = oldesf
+	}()
 
 	for _, preload := range scope.Search.preload {
 		var (
@@ -146,7 +151,7 @@ func (scope *Scope) handleHasOnePreload(field *Field, conditions *Conditions) {
 	preloadDB := conditions.MergeTo(scope.NewDB())
 
 	// find relations
-	query := fmt.Sprintf("%v IN (%v)", toQueryCondition(scope, relation.ForeignDBNames), toQueryMarks(primaryKeys))
+	query := fmt.Sprintf("%v IN (%v)", toQueryCondition(scope.db.dialect, relation.ForeignDBNames), toQueryMarks(primaryKeys))
 	values := toQueryValues(primaryKeys)
 	if relation.PolymorphicType != "" {
 		query += fmt.Sprintf(" AND %v = ?", scope.Quote(relation.PolymorphicDBName))
@@ -195,7 +200,7 @@ func (scope *Scope) handleHasManyPreload(field *Field, conditions *Conditions) {
 	preloadDB := conditions.MergeTo(scope.NewDB())
 
 	// find relations
-	query := fmt.Sprintf("%v IN (%v)", toQueryCondition(scope, relation.ForeignDBNames), toQueryMarks(primaryKeys))
+	query := fmt.Sprintf("%v IN (%v)", toQueryCondition(scope.db.dialect, relation.ForeignDBNames), toQueryMarks(primaryKeys))
 	values := toQueryValues(primaryKeys)
 	if relation.PolymorphicType != "" {
 		query += fmt.Sprintf(" AND %v = ?", scope.Quote(relation.PolymorphicDBName))
@@ -250,7 +255,7 @@ func (scope *Scope) handleBelongsToPreload(field *Field, conditions *Conditions)
 	// find relations
 	results := makeSlice(field.Struct.Type)
 	_ = scope.Err(preloadDB.Where(fmt.Sprintf("%v IN (%v)",
-		toQueryCondition(scope, relation.AssociationForeignDBNames),
+		toQueryCondition(scope.db.dialect, relation.AssociationForeignDBNames),
 		toQueryMarks(primaryKeys)),
 		toQueryValues(primaryKeys)...).
 		Find(results).Error)
@@ -302,7 +307,7 @@ func (scope *Scope) handleManyToManyPreload(field *Field, conditions *Conditions
 	preloadDB = preloadDB.Table(newScope.TableName()).Model(newScope.Value)
 
 	if len(preloadDB.search.selects) == 0 {
-		preloadDB = preloadDB.Select("*")
+		preloadDB = preloadDB.Select(IQ("{}.*"))
 	}
 
 	preloadDB = joinTableHandler.JoinWith(joinTableHandler, preloadDB, scope.Value)
@@ -323,6 +328,7 @@ func (scope *Scope) handleManyToManyPreload(field *Field, conditions *Conditions
 		// register foreign keys in join tables
 		var joinTableFields []*Field
 		for _, key := range sourceKeys {
+			fmt.Println(key.AssociationField.Struct.Type)
 			joinTableFields = append(joinTableFields, &Field{
 				StructField: &StructField{
 					DBName:   key.DBName,

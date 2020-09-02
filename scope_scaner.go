@@ -98,6 +98,6 @@ func (scope *Scope) scan(rows *sql.Rows, columns []string, fields []*Field, resu
 		}
 
 		scope.afterScanCallback(scannerFields, disableScanField)
-		scope.callMethod("AormAfterScan", reflect.ValueOf(result))
+		scope.callMethod("AfterScan", reflect.ValueOf(result))
 	}
 }

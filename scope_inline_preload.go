@@ -3,6 +3,7 @@ package aorm
 import (
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 // AutoInlinePreload preload associations
@@ -10,10 +11,10 @@ func (s *Scope) AutoInlinePreload() *Scope {
 	if s.Value == nil {
 		return s
 	}
-	if _, skip := s.InstanceGet(OptSkipPreload); skip {
+	if _, skip := s.InstanceGet(OptKeySkipPreload); skip {
 		return s
 	}
-	if _, skip := s.Get(OptSkipPreload); skip {
+	if _, skip := s.Get(OptKeySkipPreload); skip {
 		return s
 	}
 
@@ -27,13 +28,32 @@ func (s *Scope) AutoInlinePreload() *Scope {
 	}
 
 	modelStruct := s.Struct()
+	for _, fieldName := range modelStruct.InlinePreloadFields {
+		if f, ok := modelStruct.FieldsByName[fieldName]; ok {
+			if f.Relationship != nil {
+				s.Search.InlinePreload(f.Name)
+			}
+		} else if fieldName != "*" {
+			panic(fmt.Errorf("Field %s#%s does not exists", modelStruct.Fqn(), fieldName))
+		}
+	}
 
 	value := reflect.New(modelStruct.Type).Interface()
 	if ipf, ok := value.(InlinePreloadFields); ok {
 		for _, fieldName := range ipf.GetAormInlinePreloadFields() {
 			if f, ok := modelStruct.FieldsByName[fieldName]; ok {
 				if f.Relationship != nil {
-					s.Search.InlinePreload(f.Name)
+					var opt InlinePreloadOptions
+					if tag := f.TagSettings["PRELOAD"]; tag != "" {
+						for _, fieldName := range strings.Split(tag, ",") {
+							fieldName = strings.TrimSpace(fieldName)
+							if fieldName == "" {
+								continue
+							}
+							opt.Select = append(opt.Select, fieldName)
+						}
+					}
+					s.Search.InlinePreload(f.Name, &opt)
 				}
 			} else if fieldName != "*" {
 				panic(fmt.Errorf("Field %s#%s does not exists", modelStruct.Fqn(), fieldName))

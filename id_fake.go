@@ -46,6 +46,10 @@ func (this fakeId) Raw() interface{} {
 	return string(this)
 }
 
+func (this fakeId) Raws() []interface{} {
+	return []interface{}{this.Raw()}
+}
+
 func (this fakeId) SetValue(value ...interface{}) (ID, error) {
 	switch t := value[0].(type) {
 	case StrId:

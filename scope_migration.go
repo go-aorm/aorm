@@ -41,7 +41,7 @@ func (scope *Scope) createJoinTable(field *StructField) {
 				scope.getTableOptions())
 
 			// TODO: implements auditor
-			scope.Err(scope.NewDB().Exec(ddl).Error)
+			scope.Err(scope.NewDB().Table(joinTable).Exec(ddl).Error)
 		}
 		scope.NewDB().Table(joinTable).AutoMigrate(joinTableHandler)
 	}
@@ -51,7 +51,8 @@ func (scope *Scope) createTable() *Scope {
 	var tags []string
 	var primaryKeys []string
 	var primaryKeyInColumnType = false
-	for _, field := range scope.Struct().Fields {
+	Struct := scope.Struct()
+	for _, field := range Struct.Fields {
 		if field.IsNormal {
 			sqlTag := scope.Dialect().DataTypeOf(field.Structure())
 
@@ -76,9 +77,24 @@ func (scope *Scope) createTable() *Scope {
 		primaryKeyStr = fmt.Sprintf(", PRIMARY KEY (%v)", strings.Join(primaryKeys, ","))
 	}
 
-	scope.Raw(fmt.Sprintf("CREATE TABLE %v (%v %v)%s", scope.QuotedTableName(), strings.Join(tags, ","), primaryKeyStr, scope.getTableOptions())).Exec()
+	scope.Query.Query = fmt.Sprintf("CREATE TABLE %v (%v %v)%s", scope.QuotedTableName(), strings.Join(tags, ","), primaryKeyStr, scope.getTableOptions())
+	Struct.TypeCallbacks.TypeRegistrator.Call("CreateTable", Before, scope, nil)
+	if scope.HasError() {
+		return scope
+	}
+	scope.Raw(scope.Query.Query).Exec()
+	if scope.HasError() {
+		return scope
+	}
+	Struct.TypeCallbacks.TypeRegistrator.Call("CreateTable", After, scope, nil)
+	if scope.HasError() {
+		return scope
+	}
+	scope.Query.Query = ""
 
 	scope.autoIndex()
+	scope.autoForeignKeys()
+	scope.createChildrenTables()
 	return scope
 }
 
@@ -113,6 +129,23 @@ func (scope *Scope) addIndex(unique bool, indexName string, column ...string) {
 	scope.Raw(fmt.Sprintf("%s %v ON %v(%v) %v", sqlCreate, indexName, scope.QuotedTableName(), strings.Join(columns, ", "), scope.whereSQL())).Exec()
 }
 
+func (scope *Scope) autoForeignKeys() *DB {
+	ms := scope.modelStruct
+	scope.db.migrator.PostHandler(func(db *DB) (err error) {
+		db = db.ModelStruct(ms)
+		scope := db.NewModelScope(ms, ms.Value)
+
+		for _, fk := range ms.ForeignKeys {
+			def := fk.Definition(scope)
+			if err = def.Create(db); err != nil {
+				return
+			}
+		}
+		return
+	})
+	return scope.db
+}
+
 func (scope *Scope) addForeignKey(field string, dest string, onDelete string, onUpdate string) {
 	// Compatible with old generated key
 	keyName := scope.Dialect().BuildKeyName(scope.TableName(), field, dest, "foreign")
@@ -136,7 +169,6 @@ func (scope *Scope) removeForeignKey(field string, dest string) {
 	} else {
 		query = `ALTER TABLE %s DROP CONSTRAINT %s;`
 	}
-
 	scope.Raw(fmt.Sprintf(query, scope.QuotedTableName(), scope.quoteIfPossible(keyName))).Exec()
 }
 
@@ -144,112 +176,69 @@ func (scope *Scope) removeIndex(indexName string) {
 	scope.Dialect().RemoveIndex(scope.TableName(), indexName)
 }
 
-func (scope *Scope) autoMigrate() *Scope {
+func (scope *Scope) autoMigrate(parentScope *Scope) *Scope {
 	tableName := scope.TableName()
 	quotedTableName := scope.QuotedTableName()
+	scope.modelStruct.TypeCallbacks.TypeRegistrator.Call("Migrate", Before, scope, parentScope)
 
 	if !scope.Dialect().HasTable(tableName) {
 		scope.createTable()
+
+		if !scope.HasError() {
+			scope.modelStruct.TypeCallbacks.TypeRegistrator.Call("Migrate", After, scope, parentScope)
+		}
 	} else {
 		for _, field := range scope.Struct().Fields {
-			if !scope.Dialect().HasColumn(tableName, field.DBName) {
-				if field.IsNormal && !field.IsReadOnly {
+			if field.IsNormal && !field.IsReadOnly && field.StructIndex != nil {
+				if !scope.Dialect().HasColumn(tableName, field.DBName) {
 					sqlTag := scope.Dialect().DataTypeOf(field.Structure())
 					scope.Raw(fmt.Sprintf("ALTER TABLE %v ADD %v %v;", quotedTableName, scope.Quote(field.DBName), sqlTag)).Exec()
+					if scope.HasError() {
+						return scope
+					}
 				}
 			}
 			scope.createJoinTable(field)
+			if scope.HasError() {
+				return scope
+			}
 		}
 		scope.autoIndex()
+		scope.autoForeignKeys()
+		if !scope.HasError() {
+			scope.modelStruct.TypeCallbacks.TypeRegistrator.Call("Migrate", After, scope, parentScope)
+		}
+		scope.createChildrenTables()
 	}
 	return scope
 }
 
+func (scope *Scope) createChildrenTables() {
+	for _, child := range scope.modelStruct.Children {
+		childScope := scope.db.NewScope(child.Value)
+		childScope.modelStruct = child
+		childScope.autoMigrate(scope)
+	}
+	for _, child := range scope.modelStruct.HasManyChildren {
+		childScope := scope.db.NewScope(child.Value)
+		childScope.modelStruct = child
+		childScope.autoMigrate(scope)
+	}
+}
+
 func (scope *Scope) autoIndex() *Scope {
-	var indexes = map[string]*struct {
-		columns []string
-		where   []string
-	}{}
-	var uniqueIndexes = map[string]*struct {
-		columns []string
-		where   []string
-	}{}
-
-	fields := scope.GetStructFields()
-
-	for _, field := range fields {
-		if name, ok := field.TagSettings["INDEX"]; ok {
-			name = strings.ReplaceAll(name, "TB", scope.TableName())
-			names := strings.Split(name, ",")
-
-			for _, name := range names {
-				ix := &struct {
-					columns []string
-					where   []string
-				}{}
-				parts := strings.SplitN(name, "=", 2)
-				if len(parts) == 2 {
-					name = parts[0]
-					ix.where = append(ix.where, strings.ReplaceAll(parts[1], "{}", field.DBName))
-				}
-				if name == "INDEX" || name == "" {
-					name = scope.Dialect().BuildKeyName("idx", scope.TableName(), field.DBName)
-				}
-				ix.columns = append(ix.columns, field.DBName)
-				if old, ok := indexes[name]; ok {
-					old.columns = append(old.columns, ix.columns...)
-					old.where = append(old.where, ix.where...)
-				} else {
-					indexes[name] = ix
-				}
-			}
-		}
-
-		if name, ok := field.TagSettings["UNIQUE_INDEX"]; ok {
-			name = strings.ReplaceAll(name, "TB", scope.TableName())
-			names := strings.Split(name, ",")
-
-			for _, name := range names {
-				ix := &struct {
-					columns []string
-					where   []string
-				}{}
-				parts := strings.SplitN(name, "=", 2)
-				if len(parts) == 2 {
-					name = parts[0]
-					ix.where = append(ix.where, strings.ReplaceAll(parts[1], "{}", field.DBName))
-				}
-				if name == "UNIQUE_INDEX" || name == "" {
-					name = scope.Dialect().BuildKeyName("uix", scope.TableName(), field.DBName)
-				}
-				ix.columns = append(ix.columns, field.DBName)
-				if old, ok := uniqueIndexes[name]; ok {
-					old.columns = append(old.columns, ix.columns...)
-					old.where = append(old.where, ix.where...)
-				} else {
-					uniqueIndexes[name] = ix
-				}
-			}
+	tableName := scope.TableName()
+	for _, ix := range scope.modelStruct.Indexes {
+		name, sql := ix.SqlCreate(scope.db.dialect, tableName)
+		if !scope.Dialect().HasIndex(tableName, name) {
+			scope.db.AddError(scope.Raw(sql).Exec().Error())
 		}
 	}
 
-	for name, ix := range indexes {
-		s := scope.NewDB().Table(scope.TableName()).Model(scope.Value)
-		if len(ix.where) > 0 {
-			s = s.Where(strings.Join(ix.where, " AND "))
-		}
-		if db := s.AddIndex(name, ix.columns...); db.Error != nil {
-			scope.db.AddError(db.Error)
-		}
-	}
-
-	for name, ix := range uniqueIndexes {
-		s := scope.NewDB().Table(scope.TableName()).Model(scope.Value)
-		if len(ix.where) > 0 {
-			s = s.Where(strings.Join(ix.where, " AND "))
-		}
-		if db := s.AddUniqueIndex(name, ix.columns...); db.Error != nil {
-			scope.db.AddError(db.Error)
+	for _, ix := range scope.modelStruct.UniqueIndexes {
+		name, sql := ix.SqlCreate(scope.db.dialect, tableName)
+		if !scope.Dialect().HasIndex(tableName, name) {
+			scope.db.AddError(scope.Raw(sql).Exec().Error())
 		}
 	}
 

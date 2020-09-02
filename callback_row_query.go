@@ -1,6 +1,8 @@
 package aorm
 
-import "database/sql"
+import (
+	"database/sql"
+)
 
 // Define callbacks for row query
 func init() {

@@ -18,3 +18,10 @@ func (scope *Scope) checkDryRun() bool {
 	}
 	return false
 }
+
+func (scope *Scope) checkDryRunCallback(f func() error) error {
+	if !scope.checkDryRun() {
+		return f()
+	}
+	return nil
+}

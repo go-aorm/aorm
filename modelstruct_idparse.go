@@ -57,7 +57,7 @@ func (this *ModelStruct) ParseIDString(s string) (_ ID, err error) {
 	if len(this.PrimaryFields) == 1 {
 		var (
 			id    = this.DefaultID()
-			value = id.Value()
+			value = ValueOfId(id)
 		)
 		if value, err = value.ParseString(s); err != nil {
 			return

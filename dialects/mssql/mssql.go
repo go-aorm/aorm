@@ -12,6 +12,7 @@ import (
 
 	// Importing mssql driver package only in dialect file, otherwide not needed
 	_ "github.com/denisenkom/go-mssqldb"
+
 	"github.com/moisespsena-go/aorm"
 )
 
@@ -45,6 +46,34 @@ type mssql struct {
 	aorm.DefaultKeyNamer
 }
 
+func (s mssql) QuoteChar() rune {
+	panic("implement me")
+}
+
+func (s mssql) Init() {
+	panic("implement me")
+}
+
+func (s mssql) Cast(from, to string) string {
+	panic("implement me")
+}
+
+func (s mssql) Assigners() map[reflect.Type]aorm.Assigner {
+	panic("implement me")
+}
+
+func (s mssql) RegisterAssigner(assigner ...aorm.Assigner) {
+	panic("implement me")
+}
+
+func (s mssql) GetAssigner(typ reflect.Type) (assigner aorm.Assigner) {
+	panic("implement me")
+}
+
+func (s mssql) DuplicateUniqueIndexError(indexes aorm.IndexMap, tableName string, sqlErr error) (err error) {
+	panic("implement me")
+}
+
 func (mssql) GetName() string {
 	return "mssql"
 }
@@ -61,7 +90,7 @@ func (mssql) Quote(key string) string {
 	return fmt.Sprintf(`[%s]`, key)
 }
 
-func (s *mssql) DataTypeOf(field *aorm.StructField) string {
+func (s *mssql) DataTypeOf(field *aorm.FieldStructure) string {
 	var dataValue, sqlType, size, additionalType = aorm.ParseFieldStructForDialect(field, s)
 
 	if sqlType == "" {
@@ -120,7 +149,7 @@ func (s *mssql) DataTypeOf(field *aorm.StructField) string {
 	return fmt.Sprintf("%v %v", sqlType, additionalType)
 }
 
-func (s mssql) fieldCanAutoIncrement(field *aorm.StructField) bool {
+func (s mssql) fieldCanAutoIncrement(field *aorm.FieldStructure) bool {
 	if value, ok := field.TagSettings["AUTO_INCREMENT"]; ok {
 		return value != "FALSE"
 	}

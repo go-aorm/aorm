@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-type sutructIndexesBuilder struct {
+type structIndexesBuilder struct {
 	unique   bool
 	tagAlias []string
 	tagName  string
@@ -17,8 +17,8 @@ type sutructIndexesBuilder struct {
 	}
 }
 
-func newSutructIndexesBuilder(unique bool, tagName string, tagAlias ...string) *sutructIndexesBuilder {
-	return &sutructIndexesBuilder{
+func newStructIndexesBuilder(unique bool, tagName string, tagAlias ...string) *structIndexesBuilder {
+	return &structIndexesBuilder{
 		unique:   unique,
 		tagName:  tagName,
 		tagAlias: tagAlias,
@@ -31,7 +31,7 @@ func newSutructIndexesBuilder(unique bool, tagName string, tagAlias ...string) *
 	}
 }
 
-func (this *sutructIndexesBuilder) readField(field *StructField) {
+func (this *structIndexesBuilder) readField(field *StructField) {
 	for _, tag := range this.tagAlias {
 		if value, ok := field.TagSettings[tag]; ok {
 			if value == tag {
@@ -51,12 +51,18 @@ func (this *sutructIndexesBuilder) readField(field *StructField) {
 				where         []string
 				whereTemplate []string
 			}{}
+
 			parts := strings.SplitN(name, "=", 2)
 			if len(parts) == 2 {
 				name = parts[0]
-				ix.where = append(ix.where, strings.ReplaceAll(parts[1], "{}", QuoteCharS+field.DBName+QuoteCharS))
-				ix.whereTemplate = append(ix.whereTemplate, strings.ReplaceAll(parts[1], "{}", field.Name))
+				where := parts[1]
+				if strings.Contains(where, "$NOT_BLANK") {
+					where = strings.ReplaceAll(where, "$NOT_BLANK", "{} IS NOT NULL AND {} != "+SqlZeroOf(field.Struct.Type))
+				}
+				ix.where = append(ix.where, strings.ReplaceAll(where, "{}", QuoteCharS+field.DBName+QuoteCharS))
+				ix.whereTemplate = append(ix.whereTemplate, strings.ReplaceAll(where, "{}", field.Name))
 			}
+
 			ix.fields = append(ix.fields, field.DBName)
 			if name != "" && name != this.tagName {
 				// named
@@ -75,7 +81,7 @@ func (this *sutructIndexesBuilder) readField(field *StructField) {
 	}
 }
 
-func (this *sutructIndexesBuilder) build(modelStruct *ModelStruct) (indexes IndexMap, err error) {
+func (this *structIndexesBuilder) build(modelStruct *ModelStruct) (indexes IndexMap, err error) {
 	indexes = make(IndexMap)
 
 	for key, schema := range this.indexes {

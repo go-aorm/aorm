@@ -1,0 +1,8 @@
+audited:
+  fields:
+    CreatedAt: Cadastro
+    UpdatedAt: Atualizado
+    DeletedAt: Excluído
+    CreatedBy: Cadastrado por
+    UpdatedBy: Atualizado por
+    DeletedBy: Excluído por

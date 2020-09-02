@@ -42,21 +42,34 @@ func NewFieldScanner(field *Field) *ValueScanner {
 	return s
 }
 
-func NewValueScanner(typ reflect.Type) *ValueScanner {
+func NewValueScanner(typ reflect.Type, ptr ...bool) *ValueScanner {
 	s := &ValueScanner{Typ: typ}
-	s.Data = reflect.New(typ).Interface()
+	for _, s.Ptr = range ptr {
+	}
+
+	if s.Ptr && typ.Kind() != reflect.Ptr {
+		typ = reflect.PtrTo(typ)
+	}
+
+	value := reflect.New(typ)
+	if typ.Kind() == reflect.Ptr {
+		value = value.Elem()
+		//s.Data
+	}
+	s.Data = value.Interface()
 	return s
 }
 
 type ValueScanner struct {
-	Field   *Field
-	Typ     reflect.Type
-	Data    interface{}
-	NotNil  bool
-	IsValid bool
-	Ptr     bool
-	Set     func(f *ValueScanner)
-	MakePtr func() interface{}
+	Field       *Field
+	StructField *StructField
+	Typ         reflect.Type
+	Data        interface{}
+	NotNil      bool
+	IsValid     bool
+	Ptr         bool
+	Set         func(f *ValueScanner)
+	MakePtr     func() interface{}
 }
 
 func (f *ValueScanner) IsNil() bool {
@@ -75,6 +88,8 @@ func (f *ValueScanner) Scan(src interface{}) error {
 	if src != nil {
 		if f.Ptr && f.MakePtr != nil {
 			f.Data = f.MakePtr()
+		} else {
+			f.Data = reflect.New(f.Typ).Interface()
 		}
 		var err error
 		err = SqlConvertAssign(f.Data, src)

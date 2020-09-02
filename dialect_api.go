@@ -54,4 +54,8 @@ type Dialector interface {
 	RegisterAssigner(assigner ...Assigner)
 	GetAssigner(typ reflect.Type) (assigner Assigner)
 	DuplicateUniqueIndexError(indexes IndexMap, tableName string, sqlErr error) (err error)
+	ZeroValueOf(typ reflect.Type) string
+	BytesToSql(b []byte) string
+
+	PrepareSQL(sql string) string
 }

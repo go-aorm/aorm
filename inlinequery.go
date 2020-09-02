@@ -7,52 +7,72 @@ import (
 	"strings"
 )
 
-type WithInlineQuery struct {
-	query string
-	paths []string
-	args  []interface{}
+type FieldPathQuery struct {
+	Struct  *StructField
+	Virtual *VirtualField
+	query   string
+	paths   []string
+	args    []interface{}
 }
 
-func IQ(query string, args ...interface{}) *WithInlineQuery {
-	paths := PathsFromQuery(query)
-	return &WithInlineQuery{query, paths, args}
+func NewFieldPathQuery(field *StructField, virtual *VirtualField, query string, args ...interface{}) *FieldPathQuery {
+	return &FieldPathQuery{Struct: field, Virtual: virtual, query: query, paths: PathsFromQuery(query), args: args}
 }
 
-func (iq *WithInlineQuery) Query() string {
-	return iq.query
+func IQ(query string, args ...interface{}) *FieldPathQuery {
+	return NewFieldPathQuery(nil, nil, query, args...)
 }
 
-func (iq *WithInlineQuery) Paths() []string {
-	return iq.paths
+func (this *FieldPathQuery) SetQuery(query string) {
+	this.query = query
+	this.paths = PathsFromQuery(query)
 }
 
-func (iq *WithInlineQuery) WhereClause(scope *Scope) Query {
-	query := iq.query
-	tbName := scope.TableName()
-	for _, p := range iq.paths {
-		if p == "" {
-			query = strings.Replace(query, "{}", tbName, -1)
+func (this *FieldPathQuery) Query() string {
+	return this.query
+}
+
+func (this *FieldPathQuery) Paths() []string {
+	return this.paths
+}
+
+func (this *FieldPathQuery) Prefix(v string) *FieldPathQuery {
+	this.query = v + this.query
+	return this
+}
+
+func (this *FieldPathQuery) Sufix(v string) *FieldPathQuery {
+	this.query += v
+	return this
+}
+
+func (this *FieldPathQuery) WhereClause(scope *Scope) Query {
+	query := this.query
+	tbName := scope.QuotedTableName()
+	for _, p := range this.paths {
+		if dbName, ok := scope.inlinePreloads.DBNames[p]; ok {
+			query = strings.ReplaceAll(query, "{"+p+"}", dbName)
+		} else if p == "" {
+			query = strings.ReplaceAll(query, "{}", tbName)
 		} else if f := scope.Struct().FieldsByName[p]; f != nil {
 			if f.Relationship != nil {
-				dbName := scope.ScopeOfField(f.Name).TableName()
-				query = strings.Replace(query, "{"+p+"}", dbName, -1)
+				dbName := scope.ScopeOfField(f.Name).QuotedTableName()
+				query = strings.ReplaceAll(query, "{"+p+"}", dbName)
 			}
-		} else if dbName, ok := scope.inlinePreloads.DBNames[p]; ok {
-			query = strings.Replace(query, "{"+p+"}", dbName, -1)
 		} else {
 			panic(fmt.Errorf("inline preload db name of %q does not exists", p))
 		}
 	}
-	return Query{query, iq.args}
+	return Query{query, this.args}
 }
 
-func (iq *WithInlineQuery) String() string {
-	return iq.query
+func (this *FieldPathQuery) String() string {
+	return this.query
 }
 
-type InlineQueries []*WithInlineQuery
+type InlineQueries []*FieldPathQuery
 
-func (iq InlineQueries) Join(sep ...string) (result *WithInlineQuery) {
+func (iq InlineQueries) Join(sep ...string) (result *FieldPathQuery) {
 	var (
 		ok      bool
 		queries []string
@@ -63,7 +83,7 @@ func (iq InlineQueries) Join(sep ...string) (result *WithInlineQuery) {
 	if len(sep) > 0 {
 		s = sep[0]
 	}
-	result = &WithInlineQuery{}
+	result = &FieldPathQuery{}
 
 	for _, iq := range iq {
 		for _, p := range iq.paths {

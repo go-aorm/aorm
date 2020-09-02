@@ -3,6 +3,7 @@ package aorm
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 )
 
 type StructFieldMethodCallback struct {
@@ -20,6 +21,7 @@ type StructField struct {
 	Name            string
 	Names           []string
 	IsPrimaryKey    bool
+	IsChild         bool
 	IsNormal        bool
 	IsIgnored       bool
 	IsScanner       bool
@@ -29,6 +31,7 @@ type StructField struct {
 	TagSettings     TagSetting
 	Struct          reflect.StructField
 	BaseModel       *ModelStruct
+	Model           *ModelStruct
 	IsForeignKey    bool
 	Relationship    *Relationship
 	MethodCallbacks map[string]StructFieldMethodCallback
@@ -38,27 +41,11 @@ type StructField struct {
 	Data            map[interface{}]interface{}
 	Selector        FieldSelector
 	SelectWraper    FieldSelectWraper
+	Flag            FieldFlag
 }
 
 func (this *StructField) String() string {
 	return this.BaseModel.Fqn() + "#" + this.Name
-}
-
-func (this *StructField) Select(scope *Scope, tableName string) Query {
-	if this.Selector != nil {
-		if this.IsReadOnly {
-			return this.Selector.Select(this, scope, tableName).Wrap("(", ") AS "+this.DBName)
-		}
-		return this.Selector.Select(this, scope, tableName)
-	}
-	return Query{Query: tableName + this.DBName}
-}
-
-func (this *StructField) SelectWrap(scope *Scope, expr string) Query {
-	if this.SelectWraper != nil {
-		return this.SelectWraper.SelectWrap(this, scope, expr)
-	}
-	return Query{Query: expr}
 }
 
 func (this *StructField) Structure() *FieldStructure {
@@ -99,7 +86,12 @@ func (this StructField) clone() *StructField {
 }
 
 func (this StructField) IDOf(v interface{}) (IDValuer, error) {
-	value := reflect.ValueOf(v)
+	var value reflect.Value
+	if v2, ok := v.(reflect.Value); ok {
+		value = v2
+	} else {
+		value = reflect.ValueOf(v)
+	}
 	if value.Kind() == reflect.Ptr {
 		if value.IsNil() {
 			return nil, nil
@@ -148,4 +140,19 @@ func (this StructField) IDOf(v interface{}) (IDValuer, error) {
 
 func (this StructField) DefaultID() (IDValuer, error) {
 	return this.IDOf(reflect.New(this.Struct.Type).Interface())
+}
+
+func (this StructField) TextSize() (size int) {
+	if num, ok := this.TagSettings["SIZE"]; ok {
+		size, _ = strconv.Atoi(num)
+	} else if sizer, ok := this.Assigner.(SQLSizer); ok {
+		size = sizer.SQLSize(nil)
+	} else {
+		if ui16 := TextSize(this.TagSettings["TYPE"]); size == 0 {
+			size = 255
+		} else {
+			size = int(ui16)
+		}
+	}
+	return
 }

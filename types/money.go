@@ -18,33 +18,41 @@ func init() {
 	aorm.Register(MoneyAssigner{})
 }
 
+func (this Money) PrimaryGoValue() interface{} {
+	return float64(this)
+}
+
+func (this Money) IsZero() bool {
+	return this == 0
+}
+
 func (MoneyAssigner) Select(field *aorm.StructField, scope *aorm.Scope, table string) aorm.Query {
 	switch scope.Dialect().GetName() {
 	case "postgres":
-		return aorm.Query{Query: table + field.DBName + "::NUMERIC::FLOAT8"}
+		return aorm.Query{Query: table + field.DBName + "::FLOAT8"}
 	}
 	return aorm.Query{Query: table + field.DBName}
 }
 
-func (MoneyAssigner) SelectWrap(_ *aorm.StructField, scope *aorm.Scope, expr string) aorm.Query {
+func (MoneyAssigner) SelectWrap(_ *aorm.StructField, scope *aorm.Scope, query *aorm.Query) *aorm.Query {
 	switch scope.Dialect().GetName() {
 	case "postgres":
-		return aorm.Query{Query: expr + "::NUMERIC::FLOAT8"}
+		query.Query = query.Query + "::FLOAT8"
 	}
-	return aorm.Query{Query: expr}
+	return query
 }
 
 func (MoneyAssigner) DbBindVar(dialect aorm.Dialector, argVar string) string {
 	switch dialect.GetName() {
 	case "postgres":
-		return argVar + "::NUMERIC::MONEY"
+		return argVar + "::NUMERIC"
 	}
 	return argVar
 }
 
 func (MoneyAssigner) Valuer(_ aorm.Dialector, value interface{}) driver.Valuer {
 	return aorm.ValuerFunc(func() (driver.Value, error) {
-		return float64(value.(Money)), nil
+		return reflect.ValueOf(value).Float(), nil
 	})
 }
 
@@ -63,11 +71,7 @@ func (MoneyAssigner) Scaner(_ aorm.Dialector, dest reflect.Value) aorm.Scanner {
 	})
 }
 
-func (MoneyAssigner) SQLType(dialect aorm.Dialector) string {
-	switch dialect.GetName() {
-	case "postgres":
-		return "MONEY"
-	}
+func (MoneyAssigner) SQLType(aorm.Dialector) string {
 	return "NUMERIC(20,2)"
 }
 

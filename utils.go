@@ -44,26 +44,28 @@ type KVStorager interface {
 
 type safeMap struct {
 	m map[string]string
-	l *sync.RWMutex
+	l sync.RWMutex
 }
 
 func (s *safeMap) Set(key string, value string) {
 	s.l.Lock()
 	defer s.l.Unlock()
+	if s.m == nil {
+		s.m = map[string]string{}
+	}
 	s.m[key] = value
 }
 
 func (s *safeMap) Get(key string) string {
 	s.l.RLock()
 	defer s.l.RUnlock()
+	if s.m == nil {
+		return ""
+	}
 	return s.m[key]
 }
 
-func newSafeMap() *safeMap {
-	return &safeMap{l: new(sync.RWMutex), m: make(map[string]string)}
-}
-
-var smap = newSafeMap()
+var smap safeMap
 
 type strCase bool
 
@@ -79,13 +81,12 @@ type SafeNameBuilder struct {
 
 func NewSafeNameBuilder(cache KVStorager, format ...func(v string) string) *SafeNameBuilder {
 	if cache == nil {
-		cache = smap
+		cache = &smap
 	}
 	s := &SafeNameBuilder{Cache: cache}
 	for _, s.Format = range format {
 	}
 	return s
-
 }
 
 func (this *SafeNameBuilder) Build(name string) string {
@@ -335,10 +336,14 @@ func toQueryMarks(primaryValues [][]interface{}) string {
 	return strings.Join(results, ",")
 }
 
-func toQueryCondition(scope *Scope, columns []string) string {
+func toQueryCondition(quoter Quoter, columns []string) string {
 	var newColumns []string
 	for _, column := range columns {
-		newColumns = append(newColumns, scope.Quote(column))
+		parts := strings.Split(column, ".")
+		for i, p := range parts {
+			parts[i] = Quote(quoter, p)
+		}
+		newColumns = append(newColumns, strings.Join(parts, "."))
 	}
 
 	if len(columns) > 1 {
@@ -357,10 +362,13 @@ func toQueryValues(values [][]interface{}) (results []interface{}) {
 }
 
 func fileWithLineNum() string {
-	for i := 2; i < 15; i++ {
+	for i := 3; i < 15; i++ {
 		_, file, line, ok := runtime.Caller(i)
-		if ok && (!goSrcRegexp.MatchString(file) || goTestRegexp.MatchString(file)) {
+		if ok {
 			return fmt.Sprintf("%v:%v", file, line)
+			// if ok && (!goSrcRegexp.MatchString(file) || goTestRegexp.MatchString(file)) {
+			//	return fmt.Sprintf("%v:%v", file, line)
+			// }
 		}
 	}
 	return ""
@@ -408,6 +416,8 @@ func equalAsString(a interface{}, b interface{}) bool {
 
 func toString(str interface{}) string {
 	switch t := str.(type) {
+	case uint, uint8, uint16, uint32, uint64:
+		return fmt.Sprint(t)
 	case []interface{}:
 		var results []string
 		for _, value := range t {
@@ -612,6 +622,14 @@ func StructTypeOf(value reflect.Type) (typ reflect.Type, many, ptr bool) {
 	typ = value
 	for {
 		switch typ.Kind() {
+		case reflect.Struct:
+			if reflect.PtrTo(typ).Implements(reflect.TypeOf((*driver.Valuer)(nil)).Elem()) {
+				if !reflect.PtrTo(typ).Implements(reflect.TypeOf((*AormNonFieldStructor)(nil)).Elem()) {
+					// is a field type
+					return nil, false, false
+				}
+			}
+			return
 		case reflect.Interface:
 			typ = typ.Elem()
 		case reflect.Ptr:
@@ -621,14 +639,6 @@ func StructTypeOf(value reflect.Type) (typ reflect.Type, many, ptr bool) {
 			many = true
 			ptr = false
 			typ = typ.Elem()
-		case reflect.Struct:
-			if reflect.PtrTo(typ).Implements(reflect.TypeOf((*driver.Valuer)(nil)).Elem()) {
-				if !reflect.PtrTo(typ).Implements(reflect.TypeOf((*AormNonFieldStructor)(nil)).Elem()) {
-					// is a field type
-					return nil, false, false
-				}
-			}
-			return
 		default:
 			return nil, false, false
 		}

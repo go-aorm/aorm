@@ -12,10 +12,14 @@ func InlinePreloadCallback(scope *Scope) {
 
 // inlinePreloadCallback used to preload associations
 func inlinePreloadCallback(scope *Scope) {
-	if scope.counter || scope.HasError() || scope.Search.raw {
+	if scope.HasError() || scope.Search.raw {
 		return
-	} else if _, skip := scope.InstanceGet(OptSkipPreload); skip {
+	} else if _, skip := scope.InstanceGet(OptKeySkipPreload); skip {
 		return
+	}
+
+	if scope.inlinePreloads == nil {
+		scope.inlinePreloads = &InlinePreloads{DBNames: map[string]string{}}
 	}
 
 	scope.AutoInlinePreload()
@@ -31,10 +35,6 @@ func inlinePreloadCallback(scope *Scope) {
 		reflectedValue = reflect.New(scope.Struct().Type)
 		currentScope = scope.New(reflectedValue.Interface())
 		currentScope.Search = scope.Search
-	}
-
-	if scope.inlinePreloads == nil {
-		scope.inlinePreloads = &InlinePreloads{DBNames: map[string]string{}}
 	}
 
 	scope.inlinePreloads.DBNames["{}"] = scope.TableName()
@@ -70,16 +70,16 @@ func inlinePreload(rootScope, scope *Scope, index [][]int) {
 					currentScope.handleBelongsToInlinePreload(rootScope, scope, []string{}, field, currentIndex, currentOptions)
 					currentModelStruct = currentScope.Struct()
 					preloadedMap[preloadKey] = true
-				} else if currentModelStruct.virtualFields[preloadField] != nil && currentModelStruct.virtualFields[preloadField] != nil {
+				} else if currentModelStruct.virtualFields[preloadField] != nil {
 					vf := currentModelStruct.virtualFields[preloadField]
 					currentIndex = append(currentIndex, []int{(vf.StructIndex + 1) * -1})
-					value := reflect.New(vf.ModelStruct.Type).Interface()
+					value := reflect.New(vf.Model.Type).Interface()
 					currentScope = currentScope.New(value)
 					currentScope.virtualFieldInlinePreload(rootScope, scope, []string{}, vf, currentIndex, currentOptions)
-					currentModelStruct = vf.ModelStruct
+					currentModelStruct = vf.Model
 					preloadedMap[preloadKey] = true
 				} else {
-					scope.Err(fmt.Errorf("can'T inline preload field %s for %s", preloadField, currentModelStruct.Type))
+					scope.Err(fmt.Errorf("can't inline preload field %s for %s", preloadField, currentModelStruct.Type))
 					return
 				}
 			}
@@ -99,6 +99,10 @@ func (scope *Scope) handleBelongsToInlinePreload(rootScope, parentScope *Scope, 
 	)
 	scope.Search.Table(dbName)
 
+	if field.IsChild {
+		scope.Search.ignorePrimaryFields = true
+	}
+
 	for i, fk := range relation.ForeignDBNames {
 		query[i] = fmt.Sprintf("%v.%v = %v.%v", dbName, relation.AssociationForeignDBNames[i], rqtn, fk)
 	}
@@ -115,11 +119,13 @@ func (scope *Scope) handleBelongsToInlinePreload(rootScope, parentScope *Scope, 
 		Index:       index,
 	}
 
-	if options.Select != nil {
-		inlineRelated.Fields(options.Select)
-	}
+	if !rootScope.counter {
+		if len(options.Select) > 0 {
+			inlineRelated.Fields(options.Select...)
+		}
 
-	inlineRelated.Apply()
+		inlineRelated.Select()
+	}
 
 	for _, rf := range inlineRelated.RelationFields {
 		scope.ScopeOfField(rf.Name).handleBelongsToInlinePreload(rootScope, scope, path, rf, append(index, rf.StructIndex), &InlinePreloadOptions{})
@@ -148,12 +154,10 @@ func (scope *Scope) virtualFieldInlinePreload(rootScope, parentScope *Scope, pat
 		}
 
 		builder.Prepare(func(c *Conditions, query interface{}, args []interface{}, replace func(query interface{}, args ...interface{})) {
-			var replaced bool
 			if f, ok := query.(func(info *InlinePreloadInfo, replace func(query interface{}, args ...interface{}))); ok {
 				builder.InlinePreloadInfo.Conditions = c
 				f(builder.InlinePreloadInfo, func(query interface{}, args ...interface{}) {
 					replace(query, args...)
-					replaced = true
 				})
 			} else if f, ok := query.(func(info *InlinePreloadInfo)); ok {
 				builder.InlinePreloadInfo.Conditions = c
@@ -181,11 +185,13 @@ func (scope *Scope) virtualFieldInlinePreload(rootScope, parentScope *Scope, pat
 		Index:        index,
 	}
 
-	if options.Select != nil {
-		inlineRelated.Fields(options.Select...)
-	}
+	if !rootScope.counter {
+		if len(options.Select) > 0 {
+			inlineRelated.Fields(options.Select...)
+		}
 
-	inlineRelated.Apply()
+		inlineRelated.Select()
+	}
 
 	for _, rf := range inlineRelated.RelationFields {
 		scope.ScopeOfField(rf.Name).handleBelongsToInlinePreload(rootScope, scope, path, rf, append(index, rf.StructIndex), &InlinePreloadOptions{})

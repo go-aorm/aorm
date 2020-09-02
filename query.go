@@ -32,6 +32,9 @@ func (this Query) Build(appender ToVarsAppender) (query string, err error) {
 		switch t := arg.(type) {
 		case IDValuer:
 			arg = t.Raw()
+		case SqlArger:
+			replacements = append(replacements, appender.AddToVars(t.SqlArg()))
+			continue
 		}
 		switch reflect.ValueOf(arg).Kind() {
 		case reflect.Slice: // For where("id in (?)", []int64{1,2})
@@ -104,46 +107,58 @@ func (this Query) String() string {
 			} else {
 				name = strconv.Itoa(i + 1)
 			}
-			if arg == nil {
-				fmt.Fprintf(&b, "  - %s: <nil>\n", name)
-				continue
+			var theArg func(arg interface{})
+			theArg = func(arg interface{}) {
+				if arg == nil {
+					fmt.Fprintf(&b, "  - %s: <nil>\n", name)
+					return
+				}
+				typ := reflect.TypeOf(arg)
+				line := fmt.Sprintf("  - %s: %v[%s] ", name, indirectType(typ).PkgPath(), typ)
+				if isNil(reflect.ValueOf(arg)) {
+					b.WriteString(line + "<nil>\n")
+				} else {
+					var empty bool
+					switch at := arg.(type) {
+					case string:
+						if at == "" {
+							empty = true
+						}
+					case *string:
+						if *at == "" {
+							empty = true
+						}
+					case driver.Valuer:
+						if v, err := at.Value(); err == nil {
+							if fmt.Sprintf("%v", v) == fmt.Sprintf("%v", at) {
+								if z, ok := v.(Zeroer); ok && z.IsZero() {
+									empty = true
+								}
+								goto ok
+							}
+							theArg(v)
+							return
+						}
+					case Zeroer:
+						if at.IsZero() {
+							empty = true
+						}
+					}
+				ok:
+					if empty {
+						b.WriteString(line + "<empty>\n")
+						return
+					}
+					switch at := arg.(type) {
+					case time.Time:
+						arg = at.Format("2006-01-02T15:04:05-0700")
+					case *time.Time:
+						arg = at.Format("2006-01-02T15:04:05-0700")
+					}
+					b.WriteString(line + fmt.Sprint(arg) + "\n")
+				}
 			}
-			typ := reflect.TypeOf(arg)
-			line := fmt.Sprintf("  - %s: %v[%s] ", name, indirectType(typ).PkgPath(), typ)
-			if isNil(reflect.ValueOf(arg)) {
-				b.WriteString(line + "<nil>\n")
-			} else {
-				var empty bool
-				switch at := arg.(type) {
-				case string:
-					if at == "" {
-						empty = true
-					}
-				case *string:
-					if *at == "" {
-						empty = true
-					}
-				case driver.Valuer:
-					if v, err := at.Value(); err == nil && fmt.Sprint(v) == "" {
-						empty = true
-					}
-				case Zeroer:
-					if at.IsZero() {
-						empty = true
-					}
-				}
-				if empty {
-					b.WriteString(line + "<empty>\n")
-					continue
-				}
-				switch at := arg.(type) {
-				case time.Time:
-					arg = at.Format("2006-01-02T15:04:05-0700")
-				case *time.Time:
-					arg = at.Format("2006-01-02T15:04:05-0700")
-				}
-				b.WriteString(line + fmt.Sprint(arg) + "\n")
-			}
+			theArg(arg)
 		}
 	}
 	return b.String()

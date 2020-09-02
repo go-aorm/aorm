@@ -22,7 +22,7 @@ func (this *StructIndex) BuildName(d KeyNamer, tableName string) (name string) {
 		}
 		return d.BuildKeyName(prefix+"ix", tableName, this.Columns()...)
 	} else {
-		return strings.ReplaceAll(name, "TB", tableName)
+		return strings.ReplaceAll(this.NameTemplate, "TB", tableName)
 	}
 }
 
@@ -63,26 +63,31 @@ func (this *StructIndex) String() (s string) {
 	return strings.TrimSpace(s)
 }
 
-func (this *StructIndex) SqlCreate(d Dialector, tableName string) (sql string) {
+func (this *StructIndex) SqlCreate(d Dialector, tableName string) (name, sql string) {
+	name = this.BuildName(d, tableName)
 	sql = "CREATE "
 	if this.Unique {
 		sql += "UNIQUE "
 	}
-	sql += "INDEX " + Quote(d, this.BuildName(d, tableName)) + " ON " + Quote(d, tableName) + "("
+	sql += "INDEX " + Quote(d, name) + " ON " + Quote(d, tableName) + "("
 	columns := make([]string, len(this.Fields))
 	for i, f := range this.Fields {
 		columns[i] = Quote(d, f.DBName)
 	}
 	sql += strings.Join(columns, ", ") + ") "
-	sql += this.Where
-	return sql
+	if this.Where != "" {
+		sql += "WHERE " + QuoteConvert(d, d.PrepareSQL(this.Where))
+	}
+	sql = strings.TrimSpace(sql)
+	return
 }
 
 func (this *StructIndex) SqlDrop(d interface {
 	Quoter
 	KeyNamer
-}, tableName string) (sql string) {
-	return "DROP INDEX " + Quote(d, this.BuildName(d, tableName))
+}, tableName string) (name, sql string) {
+	name = this.BuildName(d, tableName)
+	return name, "DROP INDEX " + Quote(d, name)
 }
 
 type IndexMap map[string]*StructIndex

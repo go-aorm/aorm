@@ -51,7 +51,7 @@ type Audited struct {
 
 func (a *Audited) SetCreatedBy(value IDValuer) {
 	if value == nil {
-		a.CreatedByID = bid.Zero()
+		a.CreatedByID = bid.BID{}
 	} else {
 		a.CreatedByID = value.Raw().(bid.BID)
 	}
@@ -63,7 +63,7 @@ func (a *Audited) GetCreatedBy() IDValuer {
 
 func (a *Audited) SetUpdatedBy(value IDValuer) {
 	if value == nil {
-		a.UpdatedByID = bid.Zero()
+		a.UpdatedByID = bid.BID{}
 	} else {
 		a.UpdatedByID = value.Raw().(bid.BID)
 	}
@@ -76,8 +76,4 @@ func (a *Audited) GetUpdatedBy() IDValuer {
 type AuditedModel struct {
 	Model
 	Audited
-}
-
-func (scope *Scope) GetCurrentUserID() (id interface{}) {
-	return scope.db.GetCurrentUserID()
 }

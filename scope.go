@@ -8,8 +8,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/pkg/errors"
 )
 
 type Operation string
@@ -24,20 +22,22 @@ const (
 // Scope contain current operation's information when you perform any operation on the database
 type Scope struct {
 	Query
-	Search          *search
-	Value           interface{}
-	db              *DB
-	instanceID      string
-	primaryKeyField *Field
-	skipLeft        bool
-	instance        *Instance
-	selectAttrs     *[]string
-	inlinePreloads  *InlinePreloads
-	counter         bool
-	ExecTime        time.Time
-	modelStruct     *ModelStruct
-	serial          *uint16
-	Operation       Operation
+	Search               *search
+	Value                interface{}
+	db                   *DB
+	instanceID           string
+	primaryKeyField      *Field
+	skipLeft             bool
+	instance             *Instance
+	selectAttrs          *[]string
+	inlinePreloads       *InlinePreloads
+	counter              bool
+	ExecTime             time.Time
+	modelStruct          *ModelStruct
+	serial               *uint16
+	Operation            Operation
+	fieldsScanerCallback []func(f *Field)
+	fixedColumns         bool
 }
 
 func (scope *Scope) InlinePreloads() *InlinePreloads {
@@ -60,9 +60,9 @@ func (scope *Scope) New(value interface{}) *Scope {
 	return &Scope{db: scope.NewDB(), Search: &search{}, Value: value, serial: scope.serial}
 }
 
-////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////
 // Scope DB
-////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////
 
 // DB return scope's DB connection
 func (scope *Scope) DB() *DB {
@@ -92,15 +92,7 @@ func (scope *Scope) Dialect() Dialector {
 
 // Quote used to quote string to escape them for database
 func (scope *Scope) Quote(str string) string {
-	if strings.Index(str, ".") != -1 {
-		newStrs := []string{}
-		for _, str := range strings.Split(str, ".") {
-			newStrs = append(newStrs, Quote(scope.Dialect(), str))
-		}
-		return strings.Join(newStrs, ".")
-	}
-
-	return Quote(scope.Dialect(), str)
+	return QuotePath(scope.Dialect(), str)
 }
 
 // Err add error to Scope
@@ -226,6 +218,17 @@ func (scope *Scope) HasColumn(column string) bool {
 	return false
 }
 
+// Save
+func (scope *Scope) Save() *DB {
+	if !scope.PrimaryKeyZero() {
+		newDB := scope.callCallbacks(scope.db.parent.callbacks.updates).db
+		if newDB.Error != nil || newDB.RowsAffected > 0 {
+			return newDB
+		}
+	}
+	return scope.callCallbacks(scope.db.parent.callbacks.creates).db
+}
+
 // SetColumn to set the column's value, column could be field or field's name/dbname
 func (scope *Scope) SetColumn(column interface{}, value interface{}) error {
 	var updateAttrs = map[string]interface{}{}
@@ -263,8 +266,10 @@ func (scope *Scope) SetColumn(column interface{}, value interface{}) error {
 			updateAttrs[mostMatchedField.DBName] = value
 			return mostMatchedField.Set(value)
 		}
+	} else {
+		panic(fmt.Errorf("could not convert column to field: column=%T{%v} value=%T", column, column, value))
 	}
-	return errors.New("could not convert column to field")
+	return fmt.Errorf("could not convert column to field: column=%T{%v} value=%T", column, column, value)
 }
 
 // CallMethod call scope value's Method, if it is a slice, will call its element's Method one by one
@@ -327,7 +332,6 @@ func (scope *Scope) RealTableName() (name string) {
 	if tabler, ok := scope.Value.(TableNamer); ok {
 		return tabler.TableName()
 	}
-
 	return scope.Struct().TableName(scope.db.Context, scope.db.singularTable)
 }
 
@@ -382,6 +386,9 @@ func (scope *Scope) CombinedConditionSql() string {
 	if scope.Search.raw {
 		whereSQL = strings.TrimSuffix(strings.TrimPrefix(whereSQL, "WHERE ("), ")")
 	}
+	if scope.Operation == OpUpdate {
+		return joinSQL + whereSQL
+	}
 	return joinSQL + whereSQL + scope.groupSQL() +
 		scope.havingSQL() + scope.orderSQL() + scope.limitAndOffsetSQL()
 }
@@ -415,18 +422,18 @@ func (scope *Scope) ExecResult() sql.Result {
 }
 
 // Set set value by name
-func (scope *Scope) Set(name string, value interface{}) *Scope {
+func (scope *Scope) Set(name interface{}, value interface{}) *Scope {
 	scope.db.InstantSet(name, value)
 	return scope
 }
 
 // Get get setting by name
-func (scope *Scope) Get(name string) (interface{}, bool) {
+func (scope *Scope) Get(name interface{}) (interface{}, bool) {
 	return scope.db.Get(name)
 }
 
 // GetBool get boolean setting by name ou default
-func (scope *Scope) GetBool(name string, defaul ...bool) bool {
+func (scope *Scope) GetBool(name interface{}, defaul ...bool) bool {
 	value, ok := scope.db.Get(name)
 	if ok {
 		return value.(bool)
@@ -446,18 +453,18 @@ func (scope *Scope) InstanceID() string {
 }
 
 // InstanceSet set instance setting for current operation, but not for operations in callbacks, like saving associations callback
-func (scope *Scope) InstanceSet(name string, value interface{}) *Scope {
-	return scope.Set(name+scope.InstanceID(), value)
+func (scope *Scope) InstanceSet(name interface{}, value interface{}) *Scope {
+	return scope.Set(instanceKey{name, scope.InstanceID()}, value)
 }
 
 // InstanceGet get instance setting from current operation
-func (scope *Scope) InstanceGet(name string) (interface{}, bool) {
-	return scope.Get(name + scope.InstanceID())
+func (scope *Scope) InstanceGet(name interface{}) (interface{}, bool) {
+	return scope.Get(instanceKey{name, scope.InstanceID()})
 }
 
 // InstanceGetBool get boolean instance setting from current operation
-func (scope *Scope) InstanceGetBool(name string, defaul ...bool) bool {
-	return scope.GetBool(name+scope.InstanceID(), defaul...)
+func (scope *Scope) InstanceGetBool(name interface{}, defaul ...bool) bool {
+	return scope.GetBool(instanceKey{name, scope.InstanceID()}, defaul...)
 }
 
 // Begin start a transaction
@@ -488,9 +495,9 @@ func (scope *Scope) CommitOrRollback() *Scope {
 	return scope
 }
 
-////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////
 // Private Methods For *aorm.Scope
-////////////////////////////////////////////////////////////////////////////////
+// //////////////////////////////////////////////////////////////////////////////
 
 func (scope *Scope) callMethod(methodName string, reflectValue reflect.Value) {
 	// Only get address from non-pointer
@@ -498,42 +505,46 @@ func (scope *Scope) callMethod(methodName string, reflectValue reflect.Value) {
 		reflectValue = reflectValue.Addr()
 	}
 
-	if methodValue := reflectValue.MethodByName(methodName); methodValue.IsValid() {
-		switch method := methodValue.Interface().(type) {
-		case func():
-			method()
-		case func(*Scope):
-			method(scope)
-		case func(*DB):
-			newDB := scope.NewDB()
-			method(newDB)
-			scope.Err(newDB.Error)
-		case func() error:
-			scope.Err(method())
-		case func(*Scope) error:
-			scope.Err(method(scope))
-		case func(*DB) error:
-			newDB := scope.NewDB()
-			scope.Err(method(newDB))
-			scope.Err(newDB.Error)
-		default:
-			scope.Err(fmt.Errorf("unsupported function %v", methodName))
+	if !scope.modelStruct.ScopeCallbacks.Registrator.Call(methodName, Before, scope, reflectValue) {
+		return
+	}
+
+	for _, methodName := range []string{methodName, "Aorm" + methodName} {
+		if methodValue := reflectValue.MethodByName(methodName); methodValue.IsValid() {
+			switch method := methodValue.Interface().(type) {
+			case func():
+				method()
+			case func(*Scope):
+				method(scope)
+			case func(*DB):
+				newDB := scope.NewDB()
+				method(newDB)
+				scope.Err(newDB.Error)
+			case func() error:
+				scope.Err(method())
+			case func(*Scope) error:
+				scope.Err(method(scope))
+			case func(*DB) error:
+				newDB := scope.NewDB()
+				scope.Err(method(newDB))
+				scope.Err(newDB.Error)
+			default:
+				scope.Err(fmt.Errorf("unsupported function %v", methodName))
+			}
 		}
 	}
+
+	scope.modelStruct.ScopeCallbacks.Registrator.Call(methodName, After, scope, reflectValue)
 }
 
 var (
-	columnRegexp        = regexp.MustCompile("^[a-zA-Z\\d]+(\\.[a-zA-Z\\d]+)*$") // only match string like `name`, `users.name`
-	isNumberRegexp      = regexp.MustCompile("^\\s*\\d+\\s*$")                   // match if string is number
+	isNumberRegexp      = regexp.MustCompile("^\\s*\\d+\\s*$") // match if string is number
 	comparisonRegexp    = regexp.MustCompile("(?i) (=|<>|(>|<)(=?)|LIKE|IS|IN) ")
 	countingQueryRegexp = regexp.MustCompile("(?i)^count(.+)$")
 )
 
 func (scope *Scope) quoteIfPossible(str string) string {
-	if columnRegexp.MatchString(str) {
-		return scope.Quote(str)
-	}
-	return str
+	return QuoteIfPossible(scope.Dialect(), str)
 }
 
 // call after field method callbacks
@@ -542,14 +553,24 @@ func (scope *Scope) afterScanCallback(scannerFields map[int]*Field, disableScanF
 		if scope.DB().IsEnabledAfterScanCallback(scope.Value) {
 			scopeValue := reflect.ValueOf(scope)
 			for index, field := range scannerFields {
+				if _, ok := disableScanField[index]; ok {
+					continue
+				}
+				for _, cb := range scope.fieldsScanerCallback {
+					if cb != nil {
+						cb(field)
+					}
+				}
+
+				for _, cb := range field.afterScanerCallbacks {
+					cb(scope, field)
+				}
 				// if not is nill and if calbacks enabled for field type
 				if StructFieldMethodCallbacks.IsEnabledFieldType(field.Field.Type()) {
 					// not disabled on scan
-					if _, ok := disableScanField[index]; !ok {
-						if !isNil(field.Field) {
-							reflectValue := field.Field.Addr()
-							field.CallMethodCallback("AfterScan", reflectValue, scopeValue)
-						}
+					if !isNil(field.Field) {
+						reflectValue := field.Field.Addr()
+						field.CallMethodCallback("AfterScan", reflectValue, scopeValue)
 					}
 				}
 			}
@@ -585,7 +606,7 @@ func (scope *Scope) callCallbacks(funcs []*func(s *Scope)) *Scope {
 
 func (scope *Scope) updatedAttrsWithValues(value interface{}) (results map[string]interface{}, hasUpdate bool) {
 	var storeBlankField bool
-	if v, ok := scope.Get(StoreBlankField); ok {
+	if v, ok := scope.Get(OptKeyStoreBlankField); ok {
 		storeBlankField = v.(bool)
 	}
 	if scope.IndirectValue().Kind() != reflect.Struct {
@@ -650,11 +671,10 @@ func (scope *Scope) isQueryForColumn(query interface{}, column string) bool {
 		return true
 	}
 
-	if strings.HasSuffix(queryStr, "as "+column) {
-		return true
-	}
-
-	if strings.HasSuffix(queryStr, "as "+scope.Quote(column)) {
+	if strings.HasSuffix(queryStr, "as "+column) ||
+		strings.HasSuffix(queryStr, "}."+column) ||
+		strings.HasSuffix(queryStr, "as "+scope.Quote(column)) ||
+		strings.HasSuffix(queryStr, "}."+scope.Quote(column)) {
 		return true
 	}
 
@@ -671,6 +691,7 @@ func (scope *Scope) pluck(column string, value interface{}) *Scope {
 	if query, ok := scope.Search.selects["query"]; !ok || !scope.isQueryForColumn(query, column) {
 		scope.Search.Select(column)
 	}
+	scope.fixedColumns = true
 
 	rows, err := scope.rows()
 	if scope.Err(err) == nil {
@@ -692,6 +713,7 @@ func (scope *Scope) pluckFirst(column string, value interface{}) *Scope {
 	if query, ok := scope.Search.selects["query"]; !ok || !scope.isQueryForColumn(query, column) {
 		scope.Search.Select(column)
 	}
+	scope.fixedColumns = true
 
 	scope.Search.Limit(1)
 	rows, err := scope.rows()
@@ -782,11 +804,11 @@ func (scope *Scope) changeableField(field *Field) bool {
 	return true
 }
 
-func (scope *Scope) related(value interface{}, foreignKeys ...string) *Scope {
-	toScope := scope.db.NewScope(value)
+func (scope *Scope) related(toModel *ModelStruct, value interface{}, foreignKeys ...string) *Scope {
+	toScope := scope.db.NewModelScope(toModel, value)
 	db := *toScope.db
-	db.search = db.search.resetConditions()
-	toScope.Search = &search{db: &db}
+	db.search = &search{db: &db}
+	toScope.Search = db.search
 	toScope.db = &db
 
 	tx := toScope.db.Set("aorm:association:source", scope.Value)
@@ -800,7 +822,7 @@ func (scope *Scope) related(value interface{}, foreignKeys ...string) *Scope {
 			tx = onRelated.AormOnRelatedField(scope, toScope, tx, fromField)
 		}
 
-		for _, cb := range toScope.Struct().BeforeRelatedCallbacks {
+		for _, cb := range toModel.BeforeRelatedCallbacks {
 			tx = cb(scope, toScope, tx, fromField)
 		}
 	}
@@ -810,6 +832,7 @@ func (scope *Scope) related(value interface{}, foreignKeys ...string) *Scope {
 		toField, _ := toScope.FieldByName(foreignKey)
 
 		if fromField != nil {
+			tx.modelStruct = fromField.Model
 			if relationship := fromField.Relationship; relationship != nil {
 				if relationship.Kind == "many_to_many" {
 					prepare(fromField)
@@ -937,17 +960,24 @@ func (scope *Scope) ScopeOfField(fieldName string) *Scope {
 					results = reflect.Append(results, result.Addr())
 				}
 			}
-			return scope.New(results.Interface())
+			newScope := scope.New(results.Interface())
+			newScope.modelStruct = fieldStruct.Model
+			return newScope
 		case reflect.Struct:
 			if field := indirectScopeValue.FieldByIndex(fieldStruct.StructIndex); field.CanAddr() {
+				var newScope *Scope
 				if field.Kind() == reflect.Ptr {
 					if isNil(field) {
 						value := reflect.New(field.Type().Elem()).Interface()
-						return scope.New(value)
+						newScope = scope.New(value)
+					} else {
+						newScope = scope.New(field.Interface())
 					}
-					return scope.New(field.Interface())
+				} else {
+					newScope = scope.New(field.Addr().Interface())
 				}
-				return scope.New(field.Addr().Interface())
+				newScope.modelStruct = fieldStruct.Model
+				return newScope
 			}
 		}
 	}
@@ -999,7 +1029,7 @@ func (s *Scope) execQuery() (result sql.Result, err error) {
 }
 
 func (s *Scope) Loggers(set ...bool) (sl *ScopeLoggers, ok bool) {
-	key := scopeLoggerKey(s.RealTableName())
+	key := scopeLoggerKey(s.TableName())
 	if cbsv, ok := s.Get(key); ok {
 		return cbsv.(*ScopeLoggers), true
 	} else if len(set) > 0 && set[0] {
@@ -1018,7 +1048,7 @@ func (s *Scope) log(action string) *Scope {
 	if sl, ok := s.Loggers(); ok {
 		sl.Call(action, s)
 	}
-	if _, sl, ok := s.db.Loggers(s.RealTableName()); ok {
+	if _, sl, ok := s.db.Loggers(s.TableName()); ok {
 		sl.Call(action, s)
 	}
 	DefaultLogger.Call(action, s)

@@ -71,10 +71,18 @@ func (scope *Scope) whereSQL() (sql string) {
 	switch rt.Kind() {
 	case reflect.Struct:
 		if s := scope.Struct(); s.HasID() {
-			if id := scope.Struct().GetID(scope.Value); !id.IsZero() {
-				for _, field := range scope.PrimaryFields() {
-					sql := fmt.Sprintf("%v.%v = %v", quotedTableName, scope.Quote(field.DBName), scope.AddToVars(field.Field.Interface()))
-					primaryConditions = append(primaryConditions, sql)
+			if s.PrimaryField().StructIndex == nil {
+				if id, ok := scope.InstanceGet("aorm:id"); ok {
+					scope.Search.whereConditions = append(scope.Search.whereConditions, nil)
+					copy(scope.Search.whereConditions[1:], scope.Search.whereConditions)
+					scope.Search.whereConditions[0] = &Clause{Query: id.(ID)}
+				}
+			} else {
+				if id := scope.Struct().GetID(scope.Value); !id.IsZero() {
+					for _, field := range scope.PrimaryFields() {
+						sql := fmt.Sprintf("%v.%v = %v", quotedTableName, scope.Quote(field.DBName), scope.AddToVars(field.Field.Interface()))
+						primaryConditions = append(primaryConditions, sql)
+					}
 				}
 			}
 		}
@@ -134,10 +142,13 @@ func (scope *Scope) selectSQL() (sql string) {
 		var columns []string
 		for _, f := range scope.Struct().Fields {
 			if f.IsNormal || f.Selector != nil {
+				if f.IsPrimaryKey && scope.Search.ignorePrimaryFields {
+					continue
+				}
 				if q, err := f.Select(scope, tbName).Build(scope); err != nil {
 					scope.Err(errors.Wrapf(err, "select sql for field %s", f))
 					return ""
-				} else {
+				} else if q != "" {
 					columns = append(columns, q)
 				}
 			}
@@ -159,23 +170,25 @@ func (scope *Scope) selectSQL() (sql string) {
 			}
 		}
 	}
-	if scope.Search.extraSelects != nil {
-		for _, es := range scope.Search.extraSelects.Items {
-			if sql_, err := scope.buildSelectQuery(&es.Clause).Build(scope); err != nil {
-				scope.Err(err)
-				return ""
-			} else if sql_ != "" {
-				sql += "," + sql_
+	if !scope.fixedColumns {
+		if scope.Search.extraSelects != nil {
+			for _, es := range scope.Search.extraSelects.Items {
+				if sql_, err := scope.buildSelectQuery(&es.Clause).Build(scope); err != nil {
+					scope.Err(err)
+					return ""
+				} else if sql_ != "" {
+					sql += "," + sql_
+				}
 			}
 		}
-	}
-	if scope.Search.extraSelectsFields != nil {
-		for _, es := range scope.Search.extraSelectsFields.Items {
-			if sql_, err := scope.buildSelectQuery(&es.Clause).Build(scope); err != nil {
-				scope.Err(err)
-				return ""
-			} else if sql_ != "" {
-				sql += "," + sql_
+		if scope.Search.extraSelectsFields != nil {
+			for _, es := range scope.Search.extraSelectsFields.Items {
+				if sql_, err := scope.buildSelectQuery(&es.Clause).Build(scope); err != nil {
+					scope.Err(err)
+					return ""
+				} else if sql_ != "" {
+					sql += ", " + sql_
+				}
 			}
 		}
 	}

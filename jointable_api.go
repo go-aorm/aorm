@@ -2,10 +2,10 @@ package aorm
 
 // JoinTableHandlerInterface is an interface for how to handle many2many relations
 type JoinTableHandlerInterface interface {
-	TableNamer
+	TableNamePlurabler
 
 	// initialize join table handler
-	Setup(relationship *Relationship, tableName string, source, destination *ModelStruct)
+	Setup(relationship *Relationship, tableName func(singular bool) string, source, destination *ModelStruct)
 	// Table return join table's table name
 	Table(db *DB) string
 	// Add create relationship in join table for source and destination
@@ -21,4 +21,5 @@ type JoinTableHandlerInterface interface {
 
 	Source() JoinTableSource
 	Destination() JoinTableSource
+	Copy() JoinTableHandlerInterface
 }

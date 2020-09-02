@@ -38,14 +38,46 @@ This is a fork of [GORM](https://github.com/jinzhu/gorm) with improved performan
 * **NEW:** POLYMORPHIC_VALUE tag: `sql:"POLYMORPHIC_VALUE:user"` or singular and plural: `sql:"POLYMORPHIC_VALUE:user,users"`
 * **NEW:** Dry Run `db.DryRun().First(&user)`
 * **NEW:** Model Struct Api: `aorm.StructOf(&User{})`
+* **NEW:** Model Struct callbacks
 * **NEW:** Model Struct interface: `aorm.InstaceOf(&User{})`
 * **NEW:** ID Api: `aorm.IdOf(&User{ID:1})` 
 * **NEW:** Get executed query and args `fmt.Println(db.First(&user).Query)` or `fmt.Println(db.DryRun().First(&user).Query)`
 * **NEW:** Readonly fields with select query
 * **NEW:** Args and Query API `db.First(&user, aorm.Query{"name = ?", []interface{}{"joe"}})` or your type implements `aorm.Clauser`
 * **NEW:** Money type
+* **NEW:** Email type
+* **NEW:** String Slice Type (`Strings`)
+* **NEW:** Gzb Type: Text with Gzip compression
 * **NEW:** Dynamic table namer
+* **NEW:** Attribute as table
+* **NEW:** Table name with auto prefix from basename of Type PkgPath
+* **NEW:** Index/Unique with `$not_blank` token.
+* **NEW:** ID Generator API: ID field type implements `IDGenerator` interface
+* **NEW:** Migrator: `err := aorm.NewMigrator(db).Migrate()`
+* **NEW:** Quote db object path: `aorm.QuotePath(db.Dialect(), "public.users")`
 * **NEW:** and more other changes...
+
+### Drivers
+* **NEW:** Static SQL dynamic escapes and zeros from special characters:
+
+    * `SqlStringOpen`: `'«'`
+    * `SqlStringClose`: `'»'`
+    * `SqlZeroString`: `'ø'`
+    * `SqlZeroByteArray`: `'Ø'`
+    
+    EXAMPLE: 
+    
+    ```go
+    sql := "SELECT * FROM users WHERE name = «moi» OR detail = ø OR recovery_binary_key = Ø"
+    // postgres driver
+    fmt.Println(db.Driver().PrepareSQL(sql))
+    ``` 
+    output: `SELECT * FROM users WHERE name = 'moi' OR detail = '' OR recovery_binary_key = \x''`
+    
+
+### PostgreSQL Driver
+
+* **NEW:** BID Table Partition 
 
 ## Installation
 

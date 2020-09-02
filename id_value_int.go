@@ -43,7 +43,7 @@ func (this IntId) ParseString(s string) (_ IDValuer, err error) {
 }
 
 func (this IntId) String() string {
-	return fmt.Sprint(this)
+	return fmt.Sprint(int64(this))
 }
 
 func (this IntId) IsZero() bool {

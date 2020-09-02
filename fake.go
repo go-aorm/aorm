@@ -7,7 +7,7 @@ var fakeDBMap sync.Map
 // CreateFakeDB create a new fake db with dialect
 func CreateFakeDB(dialect string) (db *DB) {
 	db = &DB{
-		values:  map[string]interface{}{},
+		values:  map[interface{}]interface{}{},
 		dialect: newDialect(dialect, nil),
 	}
 	db.parent = db

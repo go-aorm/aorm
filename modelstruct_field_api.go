@@ -6,7 +6,11 @@ type (
 	}
 
 	FieldSelectWraper interface {
-		SelectWrap(field *StructField, scope *Scope, expr string) Query
+		SelectWrap(field *StructField, scope *Scope, query *Query) *Query
+	}
+
+	FieldReadOnlier interface {
+		AormFieldReadOnly() bool
 	}
 )
 

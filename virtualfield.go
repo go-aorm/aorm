@@ -20,7 +20,7 @@ func (m *VirtualFields) SetVirtualField(fieldName string, value interface{}) {
 }
 
 type VirtualField struct {
-	ModelStruct          *ModelStruct
+	Model                *ModelStruct
 	FieldName            string
 	StructIndex          int
 	Value                interface{}

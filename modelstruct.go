@@ -21,9 +21,20 @@ var DefaultTableNameHandler = func(ctx context.Context, singular bool, modelStru
 
 // ModelStruct model definition
 type ModelStruct struct {
+	ScopeCallbacks
+	TypeCallbacks
+
+	Name  string
+	Value interface{}
+
+	Root,
+	Parent,
+	parentTemp *ModelStruct
+	HasManyChild bool
+
 	storage                        *ModelStructStorage
+	ParentField                    *StructField
 	TableNameResolver              func(ctx context.Context, singular bool) (tableName string)
-	Value                          interface{}
 	PrimaryFields                  []*StructField
 	Fields                         []*StructField
 	RelatedFields                  []*StructField
@@ -41,14 +52,41 @@ type ModelStruct struct {
 	softDelete                     bool
 	Indexes                        IndexMap
 	UniqueIndexes                  IndexMap
+	Children                       []*ModelStruct
+	ChildrenByName                 map[string]*ModelStruct
+	HasManyChildren                []*ModelStruct
+	HasManyChildrenByName          map[string]*ModelStruct
+	InlinePreloadFields            []string
+	ForeignKeys                    []*ForeignKey
+	Tags                           TagSetting
+}
+
+func (this *ModelStruct) PkgPath() string {
+	for this.Type.PkgPath() == "" {
+		this = this.Parent
+	}
+	return this.Type.PkgPath()
 }
 
 func (this *ModelStruct) Fqn() string {
-	return this.Type.PkgPath() + "." + this.Type.Name()
+	var name = this.Type.Name()
+	if this.Name != name {
+		name += "@" + this.Name
+	}
+	return this.PkgName() + "." + name
 }
 
 func (this *ModelStruct) BeforeRelatedCallback(cb ...func(fromScope *Scope, toScope *Scope, db *DB, fromField *Field) *DB) {
 	this.BeforeRelatedCallbacks = append(this.BeforeRelatedCallbacks, cb...)
+}
+
+// tableName get model's table name
+func (this *ModelStruct) PkgName() (pkg string) {
+	orignalPath := this.PkgPath()
+	if pkg = PkgNamer.Get(orignalPath); pkg != "" {
+		return
+	}
+	return orignalPath
 }
 
 // tableName get model's table name
@@ -61,17 +99,81 @@ func (this *ModelStruct) TableName(ctx context.Context, singular bool) string {
 			return tableName
 		}
 	}
-	if this.PluralTableName == "" && this.Type != nil {
+
+	if singular {
+		if this.SingularTableName != "" {
+			return this.SingularTableName
+		}
+	} else if this.PluralTableName != "" {
+		return this.PluralTableName
+	}
+
+	if this.Type != nil {
+		prefix := TableNamePrefixOf(this.PkgPath())
+
+		if tname := this.Tags["TABLE_NAME"]; tname != "" {
+			this.Tags["TABLE"] = tname
+			delete(this.Tags, "TABLE_NAME")
+		}
+
+		if tname := this.Tags.GetTags("TABLE"); tname != nil {
+			if this.SingularTableName = tname.GetStringAlias("SINGULAR", "S"); this.SingularTableName != "" && this.SingularTableName[0] == '.' {
+				this.SingularTableName = prefix + "_" + this.SingularTableName[1:]
+			}
+			if this.PluralTableName = tname.GetStringAlias("PLURAL", "P"); this.PluralTableName != "" && this.PluralTableName[0] == '.' {
+				this.PluralTableName = prefix + "_" + this.PluralTableName[1:]
+			}
+
+			if singular {
+				if this.SingularTableName != "" {
+					return this.SingularTableName
+				}
+			} else if this.PluralTableName != "" {
+				return this.PluralTableName
+			}
+		} else if tname := this.Tags.GetString("TABLE"); tname != "" {
+			if tname[0] == '.' {
+				tname = prefix + "_" + tname[1:]
+			}
+			this.SingularTableName = tname
+			this.PluralTableName = inflection.Plural(tname)
+		}
+
 		// Set default table name
 		if tabler, ok := this.Value.(TableNamePlurabler); ok {
-			this.PluralTableName = tabler.TableName(false)
-			this.SingularTableName = tabler.TableName(true)
+			if this.SingularTableName == "" {
+				if this.SingularTableName = tabler.TableName(true); this.SingularTableName[0] == '.' {
+					this.SingularTableName = TableNameOfPrefix(prefix, this.SingularTableName)[0]
+				}
+			}
+			if this.PluralTableName == "" {
+				if this.PluralTableName = tabler.TableName(false); this.PluralTableName[0] == '.' {
+					this.PluralTableName = TableNameOfPrefix(prefix, this.PluralTableName)[0]
+				}
+			}
 		} else if tabler, ok := this.Value.(TableNamer); ok {
-			this.PluralTableName = tabler.TableName()
-			this.SingularTableName = this.PluralTableName
+			if this.PluralTableName == "" {
+				this.PluralTableName = tabler.TableName()
+				if this.PluralTableName[0] == '.' {
+					this.PluralTableName = TableNameOfPrefix(prefix, this.PluralTableName)[0]
+				}
+			}
+			if this.SingularTableName == "" {
+				this.SingularTableName = this.PluralTableName
+			}
 		} else {
-			this.SingularTableName = ToDBName(this.Type.Name())
-			this.PluralTableName = inflection.Plural(this.SingularTableName)
+			var (
+				name = this.Name
+			)
+			if name == "" {
+				name = this.Type.Name()
+			}
+			if this.SingularTableName == "" {
+				this.SingularTableName = TableNameOfPrefix(prefix, ToDBName(name))[0]
+			}
+			if this.PluralTableName == "" {
+				this.PluralTableName = inflection.Plural(this.SingularTableName)
+			}
 		}
 	}
 	return DefaultTableNameHandler(ctx, singular, this)
@@ -94,7 +196,7 @@ func (this *ModelStruct) SetVirtualField(fieldName string, value interface{}) *V
 		panic(err)
 	}
 	vf := &VirtualField{
-		ModelStruct: ms,
+		Model:       ms,
 		FieldName:   fieldName,
 		StructIndex: len(this.virtualFieldsByIndex),
 		Value:       value,
@@ -153,35 +255,87 @@ func (this *ModelStruct) AutoInlinePreload(virtualFieldName ...string) {
 	this.virtualFieldsAutoInlinePreload = append(this.virtualFieldsAutoInlinePreload, virtualFieldName...)
 }
 
+type FieldQuery struct {
+	FieldName       string
+	Struct          *StructField
+	Virtual         *VirtualField
+	InlineQueryName string
+}
+
+// FieldPathQueryOf returns field path query of field name or path
+func (this *ModelStruct) FieldPathQueryOf(fieldName string) (iq *FieldPathQuery) {
+	iq = &FieldPathQuery{}
+	var rFieldName string
+	if field, ok := this.FieldsByName[fieldName]; ok {
+		if field.Relationship != nil && (field.Relationship.Kind == "belongs_to" || field.Relationship.Kind == "has_one") {
+			rFieldName = field.Relationship.ForeignFieldNames[0]
+			iq.Struct = field.BaseModel.FieldsByName[rFieldName]
+			iq.SetQuery("{}." + iq.Struct.DBName)
+			return
+		}
+	}
+	var ok bool
+	if iq.Struct, iq.Virtual, ok = this.FieldDiscovery(fieldName); !ok {
+		return nil
+	}
+	if iq.Struct != nil {
+		if iq.Struct.Relationship != nil {
+			typ := iq.Struct.Struct.Type
+			if typ.Kind() == reflect.Ptr {
+				typ = typ.Elem()
+			}
+			iq.Struct = iq.Struct.Relationship.AssociationModel.PrimaryField()
+			rFieldName = fieldName + "." + iq.Struct.Name
+		} else if iq.Struct.BaseModel.Parent != nil {
+			typ := iq.Struct.Struct.Type
+			if typ.Kind() == reflect.Ptr {
+				typ = typ.Elem()
+			}
+			//iq.Struct = iq.Struct.BaseModel.ParentField.Relationship.AssociationModel.PrimaryField()
+			rFieldName = fieldName
+		}
+		parts := strings.Split(rFieldName, ".")
+		iq.SetQuery("{" + strings.Join(parts[0:len(parts)-1], ".") + "}." + iq.Struct.DBName)
+	}
+	return
+}
+
 // FieldDiscovery discovery field from name or path
-func (this *ModelStruct) FieldDiscovery(pth string) (field *StructField, virtualField *VirtualField) {
+func (this *ModelStruct) FieldDiscovery(pth string) (field *StructField, virtualField *VirtualField, ok bool) {
 	currentModelStruct := this
 	parts := strings.Split(pth, ".")
 
 	for _, fieldName := range parts[0 : len(parts)-1] {
-		if f, ok := currentModelStruct.FieldsByName[fieldName]; ok {
+		if f, ok2 := currentModelStruct.FieldsByName[fieldName]; ok2 {
 			typ := f.Struct.Type
 			switch typ.Kind() {
 			case reflect.Slice, reflect.Ptr:
 				typ = typ.Elem()
 			}
-			currentModelStruct = modelStructsMap.Get(typ)
+			if f.Model != nil {
+				currentModelStruct = f.Model
+			} else {
+				currentModelStruct = modelStructsMap.Get(typ)
+			}
 		} else {
 			if vfield := currentModelStruct.GetVirtualField(fieldName); vfield == nil {
 				return
 			} else {
-				currentModelStruct = vfield.ModelStruct
+				currentModelStruct = vfield.Model
 			}
+		}
+
+		if currentModelStruct == nil {
+			return nil, nil, false
 		}
 	}
 
 	fieldName := parts[len(parts)-1]
-	var ok bool
-
 	if field, ok = currentModelStruct.FieldsByName[fieldName]; !ok {
 		virtualField = currentModelStruct.GetVirtualField(fieldName)
 	}
 
+	ok = field != nil || virtualField != nil
 	return
 }
 
@@ -213,12 +367,17 @@ func (this *ModelStruct) GetID(record interface{}) ID {
 	default:
 		var values []IDValuer
 		for _, f := range this.PrimaryFields {
-			rv := rv.FieldByIndex(f.StructIndex)
-			if valuer, err := f.IDOf(rv.Interface()); err != nil {
-				panic(errors.Wrapf(err, "field %s#%q", this.Fqn(), f.Name))
-			} else {
-				values = append(values, valuer)
+			if f.StructIndex != nil {
+				rv := rv.FieldByIndex(f.StructIndex)
+				if valuer, err := f.IDOf(rv.Interface()); err != nil {
+					panic(errors.Wrapf(err, "field %s#%q", this.Fqn(), f.Name))
+				} else {
+					values = append(values, valuer)
+				}
 			}
+		}
+		if len(values) == 0 {
+			return nil
 		}
 		return NewId(this.PrimaryFields, values)
 	}

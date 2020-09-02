@@ -27,7 +27,7 @@ type DB struct {
 	logMode           int
 	logger            logging.Logger
 	search            *search
-	values            map[string]interface{}
+	values            map[interface{}]interface{}
 	path              []interface{}
 
 	// global db
@@ -40,7 +40,10 @@ type DB struct {
 	Context            context.Context
 	noExec             bool
 
-	Query *Query
+	Query       *Query
+	modelStruct *ModelStruct
+
+	migrator *Migrator
 }
 
 func NewDB(dialect ...Dialector) (db *DB) {
@@ -51,7 +54,7 @@ func NewDB(dialect ...Dialector) (db *DB) {
 
 	db = &DB{
 		logger:             log,
-		values:             map[string]interface{}{},
+		values:             map[interface{}]interface{}{},
 		callbacks:          DefaultCallback,
 		Context:            context.Background(),
 		modelStructStorage: modelStructStorage,
@@ -199,16 +202,33 @@ func (s *DB) SingularTable(enable bool) {
 	s.parent.singularTable = enable
 }
 
+// IsSingularTable returns if use singular table
+func (s *DB) IsSingularTable() bool {
+	return s.singularTable
+}
+
 // NewScope create a scope for current operation
 func (s *DB) NewScope(value interface{}) *Scope {
+	return s.NewModelScope(s.modelStruct, value)
+}
+
+// NewModelScope create a scope for current operation with ModelStruct
+func (s *DB) NewModelScope(model *ModelStruct, value interface{}) *Scope {
 	dbClone := s.clone()
 	dbClone.Val = value
+	dbClone.modelStruct = model
+
+	if model == nil {
+		model = StructOf(value)
+	}
+
 	var serial uint16
 	return &Scope{
-		db:     dbClone,
-		Search: dbClone.search.clone(),
-		Value:  value,
-		serial: &serial,
+		db:          dbClone,
+		Search:      dbClone.search.clone(),
+		Value:       value,
+		serial:      &serial,
+		modelStruct: model,
 	}
 }
 
@@ -398,7 +418,11 @@ func (s *DB) Find(out interface{}, where ...interface{}) *DB {
 
 // Scan scan value to a struct
 func (s *DB) Scan(dest interface{}) *DB {
-	return s.NewScope(s.Val).Set("aorm:query_destination", dest).callCallbacks(s.parent.callbacks.queries).db
+	v := s.Val
+	if v == nil {
+		v = dest
+	}
+	return s.NewScope(v).Set("aorm:query_destination", dest).callCallbacks(s.parent.callbacks.queries).db
 }
 
 // Row return `*sql.Row` with given conditions
@@ -444,7 +468,7 @@ func (s *DB) PluckFirst(column string, value interface{}) *DB {
 //     var createAt time.Time
 //     db.Model(&User{}).Exists()
 func (s *DB) Exists(where ...interface{}) (ok bool, err error) {
-	return s.NewScope(s.Val).Set(OptSkipPreload, true).inlineCondition(where...).exists()
+	return s.NewScope(s.Val).Set(OptKeySkipPreload, true).inlineCondition(where...).exists()
 }
 
 // ExistsValue used to query single column from a first model result as a map
@@ -460,8 +484,13 @@ func (s *DB) Count(value interface{}) *DB {
 }
 
 // Related get related associations
-func (s *DB) Related(value interface{}, foreignKeys ...string) *DB {
-	return s.NewScope(s.Val).related(value, foreignKeys...).db
+func (s *DB) Related(value interface{}, foreignFieldNames ...string) *DB {
+	return s.RelatedModel(StructOf(value), value, foreignFieldNames...)
+}
+
+// RelatedModel get related associations with model struct
+func (s *DB) RelatedModel(model *ModelStruct, value interface{}, foreignFieldNames ...string) *DB {
+	return s.NewScope(s.Val).related(model, value, foreignFieldNames...).db
 }
 
 // FirstOrInit find first matched record or initialize a new one with given conditions (only works with struct, map conditions)
@@ -490,6 +519,19 @@ func (s *DB) FirstOrCreate(out interface{}, where ...interface{}) *DB {
 		return c.NewScope(out).inlineCondition(where...).initialize().callCallbacks(c.parent.callbacks.creates).db
 	} else if len(c.search.assignAttrs) > 0 {
 		return c.NewScope(out).InstanceSet("aorm:update_interface", c.search.assignAttrs).callCallbacks(c.parent.callbacks.updates).db
+	}
+	return c
+}
+
+// FirstOrCreate find first matched record or create a new one with given conditions (only works with struct, map conditions)
+// https://jinzhu.github.io/gorm/crud.html#firstorcreate
+func (s *DB) firstOrCreate(out interface{}, where ...interface{}) *DB {
+	c := s.clone()
+	if result := s.First(out, where...); result.Error != nil {
+		if !result.RecordNotFound() {
+			return result
+		}
+		return c.NewScope(out).inlineCondition(where...).initialize().callCallbacks(c.parent.callbacks.creates).db
 	}
 	return c
 }
@@ -556,14 +598,12 @@ func (s *DB) Raw(sql string, values ...interface{}) *DB {
 // Exec execute raw sql
 func (s *DB) Exec(sql string, values ...interface{}) *DB {
 	scope := s.NewScope(nil)
-	q := (&Clause{sql, values}).BuildCondition(scope, true)
-	generatedSQL, err := q.Build(scope)
+	q, err := Query{Query: sql, Args: values}.Build(scope)
 	if err != nil {
 		scope.Err(err)
 		return scope.db
 	}
-	generatedSQL = strings.TrimSuffix(strings.TrimPrefix(generatedSQL, "("), ")")
-	scope.Raw(generatedSQL)
+	scope.Query.Query = q
 	return scope.Exec().db
 }
 
@@ -575,6 +615,21 @@ func (s *DB) Exec(sql string, values ...interface{}) *DB {
 func (s *DB) Model(value interface{}) *DB {
 	c := s.clone()
 	c.Val = value
+	return c
+}
+
+// ModelStruct specify the modelStruct and model you would like to run db operations
+//    userMs := StructOf(&User{})
+//    // update all users's name to `hello`
+//    db.ModelStruct(userMs, &User{}).Update("name", "hello")
+//    // if user's primary key is non-blank, will use it as condition, then will only update the user's name to `hello`
+//    db.Model(userMs, &user).Update("name", "hello")
+func (s *DB) ModelStruct(model *ModelStruct, value ...interface{}) *DB {
+	c := s.clone()
+	c.modelStruct = model
+	c.Val = reflect.New(model.Type).Interface()
+	for _, c.Val = range value {
+	}
 	return c
 }
 
@@ -610,7 +665,11 @@ func (s *DB) Begin() *DB {
 func (s *DB) Commit() *DB {
 	var emptySQLTx *sql.Tx
 	if db, ok := s.db.(sqlTx); ok && db != nil && db != emptySQLTx {
-		s.AddError(db.Commit())
+		if v, ok := s.values[OptKeyCommitDisabled]; ok && v.(bool) {
+			s.AddError(db.Rollback())
+		} else {
+			s.AddError(db.Commit())
+		}
 	} else {
 		s.AddError(ErrInvalidTransaction)
 	}
@@ -698,14 +757,14 @@ func (s *DB) Association(relatedFieldName string) *Association {
 
 // Preload preload associations with given conditions
 //    db.Preload("Orders", "state NOT IN (?)", "cancelled").Find(&users)
-func (s *DB) Preload(column string, options ...*InlinePreloadOptions) *DB {
-	return s.clone().search.Preload(column, options...).db
+func (s *DB) Preload(field string, options ...*InlinePreloadOptions) *DB {
+	return s.clone().search.Preload(field, options...).db
 }
 
 // Preload preload associations with given conditions
 //    db.Preload("Orders", "state NOT IN (?)", "cancelled").Find(&users)
-func (s *DB) InlinePreload(column string, options ...*InlinePreloadOptions) *DB {
-	return s.clone().search.InlinePreload(column, options...).db
+func (s *DB) InlinePreload(field string, options ...*InlinePreloadOptions) *DB {
+	return s.clone().search.InlinePreload(field, options...).db
 }
 
 // InlinePreloadFields set inline preload fields of value type
@@ -771,37 +830,56 @@ func (s *DB) AutoInlinePreload(value interface{}) *DB {
 	return s
 }
 
-// StoreBlankField set aorm:store_blank_field as true
-func (s *DB) StoreBlankField() *DB {
-	return s.clone().InstantSet(StoreBlankField, true)
-}
-
 // Set set setting by name, which could be used in callbacks, will clone a new db, and update its setting
-func (s *DB) Set(name string, value interface{}) *DB {
+func (s *DB) Set(name interface{}, value interface{}) *DB {
 	return s.clone().InstantSet(name, value)
 }
 
 // InstantSet instant set setting, will affect current db
-func (s *DB) InstantSet(name string, value interface{}) *DB {
-	name = strings.ReplaceAll(name, "gorm:", "aorm:")
+func (s *DB) InstantSet(name interface{}, value interface{}) *DB {
+	if s, ok := name.(string); ok {
+		name = strings.ReplaceAll(s, "gorm:", "aorm:")
+	}
 	s.values[name] = value
 	return s
 }
 
 // Get get setting by name
-func (s *DB) Get(name string) (value interface{}, ok bool) {
-	name = strings.ReplaceAll(name, "gorm:", "aorm:")
+func (s *DB) Get(name interface{}) (value interface{}, ok bool) {
+	if s, ok := name.(string); ok {
+		name = strings.ReplaceAll(s, "gorm:", "aorm:")
+	}
 	value, ok = s.values[name]
 	return
+}
+
+// GetBool get boolean setting by name ou default
+func (s *DB) GetBool(name interface{}, defaul ...bool) bool {
+	value, ok := s.Get(name)
+	if ok {
+		return value.(bool)
+	}
+	for _, defaul := range defaul {
+		return defaul
+	}
+	return false
+}
+
+// MustGet mus get setting by name
+func (s *DB) MustGet(name interface{}) (value interface{}) {
+	if s, ok := name.(string); ok {
+		name = strings.ReplaceAll(s, "gorm:", "aorm:")
+	}
+	return s.values[name]
 }
 
 // SetJoinTableHandler set a model's join table handler for a relation
 func (s *DB) SetJoinTableHandler(source interface{}, column string, handler JoinTableHandlerInterface) {
 	sourceStruct := s.StructOf(source)
 	if field, ok := sourceStruct.FieldByName(column); ok {
-		if many2many := field.TagSettings["M2M"]; many2many != "" {
-			destination := StructOf(reflect.New(field.Struct.Type).Interface())
-			handler.Setup(field.Relationship, many2many, sourceStruct, destination)
+		if field.TagSettings["M2M"] != "" {
+			destination := s.StructOf(reflect.New(field.Struct.Type).Interface())
+			handler.Setup(field.Relationship, DefaultM2MNamer(field), sourceStruct, destination)
 			field.Relationship.JoinTableHandler = handler
 			if table := handler.Table(s); s.Dialect().HasTable(table) {
 				s.Table(table).AutoMigrate(handler)
@@ -859,7 +937,7 @@ func (s *DB) ScopeErrorCallback(cb func(scope *Scope, err error)) *DB {
 ////////////////////////////////////////////////////////////////////////////////
 
 func (s DB) clone() *DB {
-	values := map[string]interface{}{}
+	values := map[interface{}]interface{}{}
 	for key, value := range s.values {
 		values[key] = value
 	}
@@ -1011,12 +1089,8 @@ func (s *DB) GetArgVariabler(arg interface{}) (argVar ArgBinder) {
 	return
 }
 
-func (s *DB) SetSingleUpdate(v bool) *DB {
-	return s.Set("aorm:single_update", v)
-}
-
 func (s *DB) SingleUpdate() bool {
-	if v, ok := s.values["aorm:single_update"]; !ok || v.(bool) {
+	if v, ok := s.values[OptKeySingleUpdate]; !ok || v.(bool) {
 		return true
 	}
 	return false
@@ -1033,41 +1107,16 @@ func (s *DB) Loggers(tableName string, set ...bool) (clone *DB, sl *ScopeLoggers
 	return s, sl, false
 }
 
-func (s *DB) SetCurrentUser(user interface{}) *DB {
+func (s *DB) SetCurrentUser(user ID) *DB {
 	return s.Set("aorm:current_user", user)
 }
 
-func (s *DB) GetCurrentUser() (user interface{}, ok bool) {
-	return s.Get("aorm:current_user")
-}
-
-func (s *DB) GetCurrentUserID() (id interface{}) {
-	var user interface{}
-	var hasUser bool
-
-	user, hasUser = s.GetCurrentUser()
-
-	if !hasUser {
-		return
+func (s *DB) GetCurrentUser() (user ID, ok bool) {
+	if v, ok := s.Get("aorm:current_user"); ok {
+		user = v.(ID)
+		return user, user != nil
 	}
-
-	switch ut := user.(type) {
-	case string:
-		if ut == "" {
-			return nil
-		}
-		return ut
-	case uint:
-		if ut == 0 {
-			return
-		}
-		return ut
-	default:
-		if primaryField := s.NewScope(user).PrimaryField(); primaryField != nil {
-			return primaryField.Field.Interface()
-		}
-		return user
-	}
+	return
 }
 
 func (s *DB) DefaultColumnValue(valuer func(scope *Scope, record interface{}, column string) interface{}) *DB {
@@ -1079,5 +1128,13 @@ func (s *DB) DefaultColumnValue(valuer func(scope *Scope, record interface{}, co
 func (s *DB) ColumnsScannerCallback(cb func(scope *Scope, record interface{}, columns []string, values []interface{})) *DB {
 	s = s.clone()
 	s.search.columnsScannerCallback = cb
+	return s
+}
+
+// Opt apply options to db
+func (s *DB) Opt(opt ...Opt) *DB {
+	for _, opt := range opt {
+		s = opt.Apply(s)
+	}
 	return s
 }

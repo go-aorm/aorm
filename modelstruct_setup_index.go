@@ -6,8 +6,8 @@ import (
 
 func (this *ModelStruct) setupIndexes() (err error) {
 	var (
-		indexes       = newSutructIndexesBuilder(false, "INDEX", "IX")
-		uniqueIndexes = newSutructIndexesBuilder(true, "UNIQUE_INDEX", "UNIQUE", "UX")
+		indexes       = newStructIndexesBuilder(false, "INDEX", "IX")
+		uniqueIndexes = newStructIndexesBuilder(true, "UNIQUE_INDEX", "UNIQUE", "UX")
 	)
 
 	for _, field := range this.Fields {

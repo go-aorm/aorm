@@ -32,6 +32,7 @@ type search struct {
 	extraSelectsFields     *extraSelectsFields
 	defaultColumnValue     func(scope *Scope, record interface{}, column string) interface{}
 	columnsScannerCallback func(scope *Scope, record interface{}, columns []string, values []interface{})
+	ignorePrimaryFields    bool
 }
 
 type searchPreload struct {
@@ -39,9 +40,8 @@ type searchPreload struct {
 	options *InlinePreloadOptions
 }
 
-func (s *search) clone() *search {
-	clone := *s
-	return &clone
+func (s search) clone() *search {
+	return &s
 }
 
 func (s search) resetConditions() *search {

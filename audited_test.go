@@ -28,18 +28,18 @@ func TestCreateUser(t *testing.T) {
 
 	product := AuditedProduct{Name: "product1"}
 	db.Save(&product)
-	if product.CreatedByID != fmt.Sprintf("%v", user.ID) {
+	if product.CreatedByID.String() != fmt.Sprintf("%v", user.ID) {
 		t.Errorf("created_by is not equal current user")
 	}
 
 	product.Name = "product_new"
 	db.Save(&product)
-	if *product.UpdatedByID != fmt.Sprintf("%v", user.ID) {
+	if product.UpdatedByID.String() != fmt.Sprintf("%v", user.ID) {
 		t.Errorf("updated_by is not equal current user")
 	}
 
 	db.Delete(&product)
-	if *product.DeletedByID != fmt.Sprintf("%v", user.ID) {
+	if product.DeletedByID.String() != fmt.Sprintf("%v", user.ID) {
 		t.Errorf("deleted_by is not equal current user")
 	}
 }

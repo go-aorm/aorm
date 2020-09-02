@@ -60,11 +60,18 @@ func (commonDialect) QuoteChar() rune {
 	return '"'
 }
 
+func (this commonDialect) PrepareSQL(sql string) string {
+	sql = strings.NewReplacer(string(SqlStringOpen)+string(SqlStringClose), "''").Replace(strings.ReplaceAll(sql, "'", "''"))
+	sql = strings.ReplaceAll(sql, string(SqlZeroByteArray), `\x''`)
+	sql = strings.ReplaceAll(sql, string(SqlZeroString), `''`)
+	return sql
+}
+
 func (s *commonDialect) fieldCanAutoIncrement(field *FieldStructure) bool {
 	if value, ok := field.TagSettings["AUTO_INCREMENT"]; ok {
 		return strings.ToLower(value) != "false"
 	}
-	return field.IsPrimaryKey
+	return field.TagSettings["AUTO_INCREMENT_DISABLED"] == "" && field.IsPrimaryKey
 }
 
 func (s *commonDialect) DataTypeOf(field *FieldStructure) string {
@@ -194,7 +201,25 @@ func (d commonDialect) DuplicateUniqueIndexError(_ IndexMap, _ string, sqlErr er
 	return sqlErr
 }
 
-// IsByteArrayOrSlice returns true of the reflected value is an array or slice
-func IsByteArrayOrSlice(value reflect.Value) bool {
-	return (value.Kind() == reflect.Array || value.Kind() == reflect.Slice) && value.Type().Elem() == reflect.TypeOf(uint8(0))
+func (commonDialect) ZeroValueOf(typ reflect.Type) string {
+	switch typ.Kind() {
+	case reflect.String:
+		return "''"
+	case reflect.Bool:
+		return "FALSE"
+	case reflect.Float32, reflect.Float64,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return "0"
+	default:
+		panic("no zero of type " + typ.String())
+	}
+}
+
+func (d commonDialect) BytesToSql(b []byte) string {
+	panic("not implemented")
+}
+
+type DefaultDbValuer interface {
+	AormDefaultDbValue(dialect Dialector) string
 }

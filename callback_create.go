@@ -21,6 +21,7 @@ func init() {
 	DefaultCallback.Create().Register("aorm:audited", auditedForCreateCallback)
 	DefaultCallback.Create().Register("aorm:create", createCallback)
 	DefaultCallback.Create().Register("aorm:force_reload_after_create", forceReloadAfterCreateCallback)
+	DefaultCallback.Create().Register("aorm:create_children", createChildrenCallback)
 	DefaultCallback.Create().Register("aorm:save_after_associations", saveAfterAssociationsCallback)
 	DefaultCallback.Create().Register("aorm:after_create", afterCreateCallback)
 	DefaultCallback.Create().Register("aorm:commit_or_rollback_transaction", commitOrRollbackTransactionCallback)
@@ -63,8 +64,8 @@ func updateTimeStampForCreateCallback(scope *Scope) {
 // auditedForCreateCallback will set `CreatedByID` when updating
 func auditedForCreateCallback(scope *Scope) {
 	if _, ok := scope.Get("aorm:created_by_column"); !ok {
-		if user := scope.GetCurrentUserID(); user != nil {
-			scope.SetColumn("CreatedByID", user)
+		if user, ok := scope.db.GetCurrentUser(); ok {
+			scope.SetColumn("CreatedByID", RawOfId(user))
 		}
 	}
 }
@@ -77,6 +78,7 @@ func createCallback(scope *Scope) {
 	var (
 		columns, placeholders        []string
 		blankColumnsWithDefaultValue []string
+		id, hasInternalId            = scope.InstanceGet("aorm:id")
 	)
 
 	for _, field := range scope.Instance().Fields {
@@ -96,7 +98,15 @@ func createCallback(scope *Scope) {
 							placeholders = append(placeholders, scope.AddToVars(Expr("("+expression+")", args...)))
 						}
 					}
-				} else if !field.IsPrimaryKey || !field.IsBlank {
+				} else if field.IsPrimaryKey {
+					if hasInternalId {
+						columns = append(columns, scope.Quote(field.DBName))
+						placeholders = append(placeholders, scope.AddToVars(RawOfId(id.(ID), field.Name)))
+					} else {
+						columns = append(columns, scope.Quote(field.DBName))
+						placeholders = append(placeholders, scope.AddToVars(field.Field.Interface()))
+					}
+				} else if !field.IsBlank || field.Flag.Has(FieldCreationStoreEmpty) {
 					columns = append(columns, scope.Quote(field.DBName))
 					placeholders = append(placeholders, scope.AddToVars(field.Field.Interface()))
 				}
@@ -123,10 +133,26 @@ func createCallback(scope *Scope) {
 	}
 
 	if primaryField != nil {
-		returningColumn = scope.Quote(primaryField.DBName)
+		if hasInternalId {
+			primaryField = nil
+			returningColumn = ""
+			for _, f := range scope.GetNonIgnoredStructFields() {
+				if !f.IsPrimaryKey && f.IsNormal && !f.IsReadOnly {
+					returningColumn += "," + f.DBName
+				}
+			}
+			if returningColumn != "" {
+				returningColumn = returningColumn[1:]
+			}
+		} else {
+			returningColumn = scope.Quote(primaryField.DBName)
+		}
 	}
 
-	lastInsertIDReturningSuffix := scope.Dialect().LastInsertIDReturningSuffix(quotedTableName, returningColumn)
+	var lastInsertIDReturningSuffix string
+	if returningColumn != "" {
+		lastInsertIDReturningSuffix = scope.Dialect().LastInsertIDReturningSuffix(quotedTableName, returningColumn)
+	}
 
 	if len(columns) == 0 {
 		scope.Raw(fmt.Sprintf(
@@ -165,7 +191,8 @@ func createCallback(scope *Scope) {
 	} else {
 		if primaryField.Field.CanAddr() {
 			scope.log(LOG_CREATE)
-			if err := scope.SQLDB().QueryRow(scope.Query.Query, scope.Query.Args...).Scan(primaryField.Field.Addr().Interface()); scope.Err(err) == nil {
+			row := scope.SQLDB().QueryRow(scope.Query.Query, scope.Query.Args...)
+			if err := row.Scan(primaryField.Field.Addr().Interface()); scope.Err(err) == nil {
 				primaryField.IsBlank = false
 				scope.db.RowsAffected = 1
 			}
@@ -178,27 +205,92 @@ func createCallback(scope *Scope) {
 // forceReloadAfterCreateCallback will reload columns that having default value, and set it back to current object
 func forceReloadAfterCreateCallback(scope *Scope) {
 	if blankColumnsWithDefaultValue, ok := scope.InstanceGet("aorm:blank_columns_with_default_value"); ok {
-		db := scope.DB().New().Table(scope.TableName()).Select(blankColumnsWithDefaultValue.([]string))
-		for _, field := range scope.Instance().Primary {
-			if !field.IsBlank {
-				db = db.Where(fmt.Sprintf("%v = ?", field.DBName), field.Field.Interface())
+		db := scope.db.New().Table(scope.TableName()).ModelStruct(scope.modelStruct, scope.db.Val)
+		columns := blankColumnsWithDefaultValue.([]string)
+		idv, hasInternalId := scope.InstanceGet("aorm:id")
+		if hasInternalId {
+			if pkf := scope.modelStruct.PrimaryField(); pkf != nil && pkf.StructIndex == nil {
+				db = db.Where(idv.(ID))
+			}
+		} else {
+			if id := scope.modelStruct.GetID(scope.Value); id != nil && !id.IsZero() {
+				// skip id columns
+				quote := func(c string) string { return Quote(scope.Dialect(), c) }
+				for _, f := range id.Fields() {
+					for i, c := range columns {
+						if quote(f.DBName) == c {
+							columns = append(columns[0:i], columns[i:len(columns)-1]...)
+							break
+						}
+					}
+				}
 			}
 		}
-		db.Scan(scope.Value)
+		if len(columns) > 0 {
+			db.Select(columns).Scan(scope.Value)
+		}
+	}
+}
+
+// createChildrenCallback will creates children
+func createChildrenCallback(scope *Scope) {
+	if scope.HasError() {
+		return
+	}
+
+	if _, ok := scope.InstanceGet("aorm:skip_children_create"); ok {
+		return
+	}
+
+	var (
+		id ID
+	)
+	// if is root struct
+	if s := scope.Struct(); s.Root == nil || s.HasManyChild {
+		id = scope.instance.ID()
+	} else {
+		idv, _ := scope.InstanceGet("aorm:id")
+		id = idv.(ID)
+	}
+
+	for _, child := range scope.modelStruct.Children {
+		v := scope.instance.FieldsMap[child.ParentField.Name].Field
+		if v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				continue
+			}
+		} else {
+			v2 := reflect.New(v.Type())
+			v2.Elem().Set(v)
+			v = v2
+		}
+		childScope := scope.db.NewScope(v.Interface()).InstanceSet("aorm:id", id)
+		childScope.modelStruct = child
+		if scope.Err(childScope.callCallbacks(childScope.db.parent.callbacks.creates).db.Error) != nil {
+			return
+		}
 	}
 }
 
 // afterCreateCallback will invoke `AfterCreate`, `AfterSave` method after creating
 func afterCreateCallback(scope *Scope) {
-	if !scope.HasError() {
-		scope.CallMethod("AfterCreate")
+	if scope.HasError() {
+		return
 	}
-	if !scope.HasError() {
-		scope.CallMethod("AfterSave")
+
+	scope.CallMethod("AfterCreate")
+
+	if scope.HasError() {
+		return
 	}
+
+	scope.CallMethod("AfterSave")
 }
 
 func SetIdCallback(scope *Scope) {
+	if _, ok := scope.InstanceGet("aorm:id"); ok {
+		return
+	}
 	value := scope.Value
 	reflectValue := reflect.ValueOf(value)
 
@@ -208,11 +300,16 @@ func SetIdCallback(scope *Scope) {
 
 	pf := scope.PrimaryField()
 
-	if pf != nil && pf.TagSettings.Flag("SERIAL") {
-		i := pf.Field.Addr().Interface()
-		if gen, ok := i.(Generator); ok {
-			gen.Generate()
-			pf.Set(reflect.ValueOf(gen).Elem())
+	if gen, ok := value.(IDGenerator); ok {
+		val := gen.AormGenerateID().Values()[0].Raw()
+		pf.Set(reflect.ValueOf(val).Elem())
+	} else {
+		if pf != nil && pf.TagSettings.Flag("SERIAL") {
+			i := pf.Field.Addr().Interface()
+			if gen, ok := i.(Generator); ok && gen.IsZero() {
+				gen.Generate()
+				pf.Set(reflect.ValueOf(gen).Elem())
+			}
 		}
 	}
 }

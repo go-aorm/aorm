@@ -8,13 +8,16 @@ type extraSelectsFields struct {
 	Items  []*extraSelectField
 	Fields []*StructField
 	Types  []reflect.Type
+	Ptrs   []bool
 	Size   int
 }
 
 func (es *extraSelectsFields) NewValues() []interface{} {
 	r := make([]interface{}, es.Size)
 	for i, typ := range es.Types {
-		r[i] = NewValueScanner(typ)
+		scaner := NewValueScanner(typ, es.Ptrs[i])
+		scaner.StructField = es.Fields[i]
+		r[i] = scaner
 	}
 	return r
 }
@@ -34,6 +37,7 @@ func (es *extraSelectsFields) Add(key string, value interface{}, fields []*Struc
 	s := &extraSelectField{Clause{query, args}, key, value, fields, ptrs, callback, len(fields)}
 	es.Fields = append(es.Fields, fields...)
 	es.Types = append(es.Types, types...)
+	es.Ptrs = append(es.Ptrs, ptrs...)
 	es.Items = append(es.Items, s)
 	es.Size += s.Size
 	return s
@@ -56,7 +60,7 @@ type extraSelectField struct {
 	Size     int
 }
 
-type ExtraSelectFieldsSetter func(result interface{}, values []interface{}, set func(result interface{}, low, hight int) interface{})
+type ExtraSelectFieldsSetter func(result interface{}, values []interface{}, set func(model *ModelStruct, result interface{}, low, hight int) interface{})
 
 func (es *extraSelectField) setValues(scope *Scope, record interface{}, values []interface{}, fields []*Field, ptrs []bool) {
 	scopeValue := reflect.ValueOf(scope)
@@ -85,7 +89,7 @@ func (es *extraSelectField) setValues(scope *Scope, record interface{}, values [
 
 func (es *extraSelectField) SetValues(scope *Scope, record interface{}, values []interface{}) {
 	if setter, ok := es.Value.(ExtraSelectFieldsSetter); ok {
-		setter(record, values, func(result interface{}, low, hight int) interface{} {
+		setter(record, values, func(model *ModelStruct, result interface{}, low, hight int) interface{} {
 			var newScope *Scope
 			switch rt := result.(type) {
 			case reflect.Value:
@@ -95,6 +99,7 @@ func (es *extraSelectField) SetValues(scope *Scope, record interface{}, values [
 			default:
 				newScope = scope.New(reflect.New(reflect.Indirect(reflect.ValueOf(result)).Type()).Interface())
 			}
+			newScope.modelStruct = model
 			if hight <= 0 {
 				hight = len(values)
 			}

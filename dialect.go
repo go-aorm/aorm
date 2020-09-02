@@ -1,10 +1,8 @@
 package aorm
 
 import (
-	"database/sql"
 	"fmt"
 	"reflect"
-	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -53,69 +51,6 @@ type FieldStructure struct {
 	TagSettings  map[string]string
 	Assigner     Assigner
 	IsPrimaryKey bool
-}
-
-// ParseFieldStructForDialect get field's sql data type
-var ParseFieldStructForDialect = func(field *FieldStructure, dialect Dialector) (fieldValue reflect.Value, sqlType string, size int, additionalType string) {
-	// Get redirected field type
-	var (
-		reflectType = field.Type
-		dataType    = field.TagSettings["TYPE"]
-	)
-
-	for reflectType.Kind() == reflect.Ptr {
-		reflectType = reflectType.Elem()
-	}
-
-	if dataType != "" {
-		switch reflectType.Kind() {
-		case reflect.String:
-			dataType = AbbrToTextType(dataType)
-		}
-	}
-
-	if dataType == "" && field.Assigner != nil {
-		dataType = field.Assigner.SQLType(dialect)
-	}
-
-	// Get redirected field value
-	fieldValue = reflect.Indirect(reflect.New(reflectType))
-
-	if dataTyper, ok := fieldValue.Interface().(DbDataTyper); ok {
-		dataType = dataTyper.AormDataType(dialect)
-	}
-
-	// Get scanner's real value
-	if dataType == "" {
-		var getScannerValue func(reflect.Value)
-		getScannerValue = func(value reflect.Value) {
-			fieldValue = value
-			if _, isScanner := reflect.New(fieldValue.Type()).Interface().(sql.Scanner); isScanner && fieldValue.Kind() == reflect.Struct {
-				getScannerValue(fieldValue.Field(0))
-			}
-		}
-		getScannerValue(fieldValue)
-	}
-
-	// Default Size
-	if num, ok := field.TagSettings["SIZE"]; ok {
-		size, _ = strconv.Atoi(num)
-	} else if sizer, ok := field.Assigner.(SQLSizer); ok {
-		size = sizer.SQLSize(dialect)
-	} else {
-		size = 255
-	}
-
-	// Default type from tag setting
-	additionalType = field.TagSettings["NOT NULL"] + " " + field.TagSettings["UNIQUE"]
-	if value, ok := field.TagSettings["DEFAULT"]; ok {
-		// not default expression
-		if value != "DEFAULT" {
-			additionalType = additionalType + " DEFAULT " + value
-		}
-	}
-
-	return fieldValue, dataType, size, strings.TrimSpace(additionalType)
 }
 
 func currentDatabaseAndTable(dialect Dialector, tableName string) (string, string) {

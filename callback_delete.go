@@ -49,9 +49,9 @@ func deleteCallback(scope *Scope) {
 		)
 
 		if _, ok := scope.FieldByName(SoftDeleteFieldDeletedByID); ok {
-			if user := scope.GetCurrentUserID(); user != nil {
+			if user, ok := scope.db.GetCurrentUser(); ok {
 				columns = append(columns, SoftDeletedColumnDeletedByID)
-				values = append(values, scope.AddToVars(user))
+				values = append(values, scope.AddToVars(RawOfId(user)))
 				scope.SetColumn(SoftDeleteFieldDeletedByID, user)
 			}
 		}

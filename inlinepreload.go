@@ -49,6 +49,10 @@ func (p *InlinePreloader) Fields(fields ...interface{}) {
 		case string:
 			if field, ok := p.Scope.Struct().FieldsByName[ft]; ok {
 				p.StructFields = append(p.StructFields, field)
+			} else if ft == "*" {
+				for _, field := range p.Scope.GetNonRelatedStructFields() {
+					p.StructFields = append(p.StructFields, field)
+				}
 			} else {
 				p.RootScope.Err(fmt.Errorf("Struct field %q does not exists.", ft))
 			}
@@ -72,6 +76,9 @@ func (p *InlinePreloader) Fields(fields ...interface{}) {
 	var newFields []*StructField
 
 	for _, f := range p.StructFields {
+		if f.IsReadOnly || (p.Scope.Search.ignorePrimaryFields && f.IsPrimaryKey) {
+			continue
+		}
 		if f.Relationship == nil {
 			newFields = append(newFields, f)
 		} else {
@@ -80,6 +87,10 @@ func (p *InlinePreloader) Fields(fields ...interface{}) {
 	}
 
 	p.StructFields = newFields
+
+	if p.Scope.Search.ignorePrimaryFields {
+		return
+	}
 
 KeyFields:
 	for _, kf := range p.Scope.Struct().PrimaryFields {
@@ -94,6 +105,13 @@ KeyFields:
 
 func (p *InlinePreloader) GetFields() []*StructField {
 	if len(p.StructFields) == 0 {
+		if len(p.Scope.modelStruct.Children) > 0 {
+			var names []string
+			for _, model := range p.Scope.modelStruct.Children {
+				names = append(names, model.ParentField.Name)
+			}
+			p.Fields(names)
+		}
 		if irf, ok := p.Scope.Value.(InlinePreloadFields); ok {
 			p.Fields(irf.GetAormInlinePreloadFields())
 			if len(p.StructFields) != 0 || len(p.RelationFields) != 0 {
@@ -105,6 +123,9 @@ func (p *InlinePreloader) GetFields() []*StructField {
 				return p.StructFields
 			}
 		}
+		if len(p.Scope.modelStruct.InlinePreloadFields) > 0 {
+			p.Fields(p.Scope.modelStruct.InlinePreloadFields)
+		}
 		if p.Field != nil {
 			if preload := p.Field.TagSettings["PRELOAD"]; preload != "" {
 				p.Fields(strings.Split(preload, ","))
@@ -113,7 +134,20 @@ func (p *InlinePreloader) GetFields() []*StructField {
 				}
 			}
 		}
-		p.StructFields = p.Scope.GetNonRelatedStructFields()
+
+		if p.Scope.Search.ignorePrimaryFields {
+			for _, f := range p.Scope.GetNonRelatedStructFields() {
+				if !f.IsPrimaryKey {
+					p.StructFields = append(p.StructFields, f)
+				}
+			}
+		} else {
+			for _, f := range p.Scope.GetNonRelatedStructFields() {
+				if !f.IsReadOnly && f.StructIndex != nil {
+					p.StructFields = append(p.StructFields, f)
+				}
+			}
+		}
 	}
 	return p.StructFields
 }
@@ -130,15 +164,22 @@ func (p *InlinePreloader) GetQuery() string {
 	return p.Query
 }
 
-func (p *InlinePreloader) Apply() {
-	field := p.GetFields()
+func (p *InlinePreloader) Select() {
+	fields := p.GetFields()
 	if !p.RootScope.counter {
-		p.RootScope.Search.ExtraSelectFieldsSetter(p.ID, p.Scan, field, p.GetQuery())
+		p.RootScope.Search.ExtraSelectFieldsSetter(p.ID, p.Scan, fields, p.GetQuery())
 	}
 }
 
-func (p *InlinePreloader) Scan(result interface{}, values []interface{}, set func(result interface{}, low, hight int) interface{}) {
-	if !values[0].(*ValueScanner).IsNil() {
+func (p *InlinePreloader) Scan(result interface{}, values []interface{}, set func(model *ModelStruct, result interface{}, low, hight int) interface{}) {
+	var model *ModelStruct
+	if p.Field != nil {
+		model = p.Field.Model
+	} else {
+		model = p.VirtualField.Model
+	}
+	// if is child, not loads primary fields, other else, require loads for check is NULL
+	if (p.Field != nil && p.Field.IsChild) || !values[0].(*ValueScanner).IsNil() {
 		field := reflect.Indirect(reflect.ValueOf(result))
 		ms := p.RootScope.Struct()
 		for _, pth := range p.Index {
@@ -150,7 +191,7 @@ func (p *InlinePreloader) Scan(result interface{}, values []interface{}, set fun
 					if ok {
 						field = reflect.Indirect(reflect.ValueOf(v))
 					} else {
-						rv := reflect.New(vf.ModelStruct.Type)
+						rv := reflect.New(vf.Model.Type)
 						v = rv.Interface()
 						vf.Set(mvf, v)
 						field = rv
@@ -159,7 +200,7 @@ func (p *InlinePreloader) Scan(result interface{}, values []interface{}, set fun
 					if v, ok := vf.Getter(vf, field.Addr().Interface()); ok {
 						field = reflect.Indirect(reflect.ValueOf(v))
 					} else {
-						rv := reflect.New(vf.ModelStruct.Type)
+						rv := reflect.New(vf.Model.Type)
 						v = rv.Interface()
 						vf.Set(field.Addr().Interface(), v)
 						field = rv
@@ -173,7 +214,7 @@ func (p *InlinePreloader) Scan(result interface{}, values []interface{}, set fun
 			}
 			field = reflect.Indirect(field)
 		}
-		set(field, 0, 0)
+		set(model, field, 0, 0)
 		if cb, ok := result.(AfterInlinePreloadScanner); ok {
 			cb.AormAfterInlinePreloadScan(p, result, field.Addr().Interface())
 		}
