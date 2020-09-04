@@ -30,6 +30,18 @@ type ScopeCallbacksRegistrator struct {
 	mu sync.RWMutex
 }
 
+func (this ScopeCallbacksRegistrator) Clone() *ScopeCallbacksRegistrator {
+	var m = map[string]map[CallbackPosition][]ScopeCallback{}
+	for k, v := range this.m {
+		m[k] = map[CallbackPosition][]ScopeCallback{}
+		for k2, v2 := range v {
+			m[k][k2] = v2
+		}
+	}
+	this.m = m
+	return &this
+}
+
 func (this *ScopeCallbacksRegistrator) Register(pos CallbackPosition, name []string, f ...ScopeCallback) {
 	this.mu.Lock()
 	defer this.mu.Unlock()

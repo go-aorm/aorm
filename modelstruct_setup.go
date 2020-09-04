@@ -15,6 +15,9 @@ import (
 func (this *ModelStruct) setup(pth []string, embedded bool, from *ModelStruct) (err error) {
 	if !embedded {
 		defer func() {
+			if err == nil && this.Parent == nil {
+				this.updateChildren()
+			}
 			if err == nil {
 				err = this.setupIndexes()
 			}
@@ -398,21 +401,26 @@ func (this *ModelStruct) setup(pth []string, embedded bool, from *ModelStruct) (
 					field.IsNormal = true
 				} else if field.TagSettings.Flag("EMBEDDED") || fieldStruct.Anonymous {
 					var subModel *ModelStruct
-					if subModel, err = this.storage.getOrNew(fieldValue, nil, true, this); err != nil {
+					if subModel, err = this.storage.getOrNew(fieldValue, []string{this.Name}, true, this); err != nil {
 						return errors.Wrapf(err, "model struct for field %q", field.Name)
 					}
 
 					if fieldStruct.Anonymous {
-						this.ForeignKeys = append(this.ForeignKeys, subModel.ForeignKeys...)
+						for _, fk := range subModel.ForeignKeys {
+							this.ForeignKeys = append(this.ForeignKeys, fk.Clone())
+						}
 					}
 
 					// is embedded struct
-					for _, subField := range subModel.Fields {
-						subField = subField.clone()
+					for _, subFieldOriginal := range subModel.Fields {
+						subField := subFieldOriginal.Clone()
 						subField.BaseModel = this
 						if subField.Relationship != nil {
 							subField.Relationship = subField.Relationship.Copy()
 							subField.Relationship.Model = this
+							if subField.Relationship.Field == subFieldOriginal {
+								subField.Relationship.Field = subField
+							}
 						}
 
 						subField.Names = append([]string{fieldStruct.Name}, subField.Names...)
@@ -423,7 +431,30 @@ func (this *ModelStruct) setup(pth []string, embedded bool, from *ModelStruct) (
 						if fieldStruct.Anonymous {
 							subField.StructIndex = append(fieldStruct.Index, subField.StructIndex...)
 							if subField.IsChild {
-								this.addChildField(append(pth, this.Name), subField)
+								childModel := subField.Model.Clone()
+								childModel.ParentField = subField
+								childModel.PluralTableName = ""
+								childModel.SingularTableName = ""
+								childModel.Parent = this
+
+								subField.Relationship.Model = this
+								subField.Relationship.AssociationModel = childModel
+
+								newParentFk := childModel.ParentForeignKey.Clone()
+								newParentFk.Field = subField
+								childModel.ForeignKeys = append([]*ForeignKey{}, childModel.ForeignKeys...)
+
+								for i, fk := range childModel.ForeignKeys {
+									if fk == childModel.ParentForeignKey {
+										childModel.ForeignKeys[i] = newParentFk
+									}
+								}
+								childModel.ParentForeignKey = newParentFk
+
+								subField.Model = childModel
+
+								this.ChildrenByName[subField.Name] = childModel
+								this.Children = append(this.Children, childModel)
 								this.Fields = append(this.Fields, subField)
 								continue
 							}
@@ -474,16 +505,23 @@ func (this *ModelStruct) setup(pth []string, embedded bool, from *ModelStruct) (
 								foreignStruct             *ModelStruct
 							)
 
-							if indirectType(field.Struct.Type).Name() == "" && len(this.PrimaryFields) > 0 {
-								err = this.addChildField(append(pth, this.Name), field)
-								return
-							}
-
 							if foreignStruct, err = this.storage.getOrNew(field.Struct.Type, nil, false, this); err != nil {
 								err = errors.Wrapf(err, "model struct of field %q", field.Name)
 								return
-							} else if len(foreignStruct.PrimaryFields) == 0 {
-								err = this.addChildField(append(pth, this.Name), field)
+							}
+
+							if indirectType(field.Struct.Type).Name() == "" && len(this.PrimaryFields) > 0 {
+								err = this.addChildField(field, foreignStruct)
+								return
+							}
+
+							if len(foreignStruct.PrimaryFields) == 0 {
+								err = errors.Wrapf(errors.New("child model require primary key"), "child of field %q", field.Name)
+								return
+							} else if field.TagSettings["CHILD"] != "" || foreignStruct.Tags.Flag("CHILD") {
+								if err = this.addChildField(field, foreignStruct); err != nil {
+									err = errors.Wrapf(err, "field [as child] %q", field.Name)
+								}
 								return
 							}
 
@@ -680,8 +718,13 @@ func (this *ModelStruct) setup(pth []string, embedded bool, from *ModelStruct) (
 				}
 			}
 
-			// Even it is ignored, also possible to decode db value into the field
 			if value, ok := field.TagSettings["COLUMN"]; ok {
+				field.TagSettings["DB_NAME"] = value
+				delete(field.TagSettings, "COLUMN")
+			}
+
+			// Even it is ignored, also possible to decode db value into the field
+			if value, ok := field.TagSettings["DB_NAME"]; ok {
 				field.DBName = value
 			} else {
 				field.DBName = ToDBName(fieldStruct.Name)
@@ -723,7 +766,6 @@ func (this *ModelStruct) setup(pth []string, embedded bool, from *ModelStruct) (
 			p = p.Parent
 		}
 		if p != nil {
-			this.Root = p
 			this.Parent = from
 		}
 	}

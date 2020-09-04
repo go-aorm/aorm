@@ -57,7 +57,7 @@ func (this *structIndexesBuilder) readField(field *StructField) {
 				name = parts[0]
 				where := parts[1]
 				if strings.Contains(where, "$NOT_BLANK") {
-					where = strings.ReplaceAll(where, "$NOT_BLANK", "{} IS NOT NULL AND {} != "+SqlZeroOf(field.Struct.Type))
+					where = strings.ReplaceAll(where, "$NOT_BLANK", "{} IS NOT NULL AND {} != " + SqlZeroOf(field.Struct.Type))
 				}
 				ix.where = append(ix.where, strings.ReplaceAll(where, "{}", QuoteCharS+field.DBName+QuoteCharS))
 				ix.whereTemplate = append(ix.whereTemplate, strings.ReplaceAll(where, "{}", field.Name))

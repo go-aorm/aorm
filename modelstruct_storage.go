@@ -44,12 +44,10 @@ func (this *ModelStructStorage) getOrNew(value interface{}, pth []string, embedd
 	}
 
 	modelStruct.parentTemp = from
-	defer func() {
-		modelStruct.parentTemp = nil
-	}()
 	if err = modelStruct.setup(pth, embedded, from); err != nil {
 		return nil, err
 	}
+	modelStruct.parentTemp = nil
 	return
 }
 

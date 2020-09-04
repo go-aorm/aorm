@@ -8,6 +8,24 @@ import (
 
 type TagSetting map[string]string
 
+func (this TagSetting) Clone() (clone TagSetting) {
+	if this == nil {
+		return
+	}
+	clone = make(TagSetting)
+	for key, value := range this {
+		clone[key] = value
+	}
+	return
+}
+
+func (this TagSetting) Get(key string) (v string) {
+	if this != nil {
+		v = this[key]
+	}
+	return
+}
+
 func (this TagSetting) GetOk(key string) (v string, ok bool) {
 	if this == nil {
 		return
@@ -15,6 +33,7 @@ func (this TagSetting) GetOk(key string) (v string, ok bool) {
 	v, ok = this[key]
 	return
 }
+
 func (this TagSetting) GetString(key string) (v string) {
 	if this == nil {
 		return
@@ -24,6 +43,7 @@ func (this TagSetting) GetString(key string) (v string) {
 	}
 	return
 }
+
 func (this TagSetting) GetStringAlias(key string, alias ...string) (v string) {
 	if this == nil {
 		return

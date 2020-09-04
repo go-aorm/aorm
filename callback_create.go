@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/pkg/errors"
 )
 
 const (
@@ -78,7 +80,6 @@ func createCallback(scope *Scope) {
 	var (
 		columns, placeholders        []string
 		blankColumnsWithDefaultValue []string
-		id, hasInternalId            = scope.InstanceGet("aorm:id")
 	)
 
 	for _, field := range scope.Instance().Fields {
@@ -99,13 +100,8 @@ func createCallback(scope *Scope) {
 						}
 					}
 				} else if field.IsPrimaryKey {
-					if hasInternalId {
-						columns = append(columns, scope.Quote(field.DBName))
-						placeholders = append(placeholders, scope.AddToVars(RawOfId(id.(ID), field.Name)))
-					} else {
-						columns = append(columns, scope.Quote(field.DBName))
-						placeholders = append(placeholders, scope.AddToVars(field.Field.Interface()))
-					}
+					columns = append(columns, scope.Quote(field.DBName))
+					placeholders = append(placeholders, scope.AddToVars(field.Field.Interface()))
 				} else if !field.IsBlank || field.Flag.Has(FieldCreationStoreEmpty) {
 					columns = append(columns, scope.Quote(field.DBName))
 					placeholders = append(placeholders, scope.AddToVars(field.Field.Interface()))
@@ -133,20 +129,7 @@ func createCallback(scope *Scope) {
 	}
 
 	if primaryField != nil {
-		if hasInternalId {
-			primaryField = nil
-			returningColumn = ""
-			for _, f := range scope.GetNonIgnoredStructFields() {
-				if !f.IsPrimaryKey && f.IsNormal && !f.IsReadOnly {
-					returningColumn += "," + f.DBName
-				}
-			}
-			if returningColumn != "" {
-				returningColumn = returningColumn[1:]
-			}
-		} else {
-			returningColumn = scope.Quote(primaryField.DBName)
-		}
+		returningColumn = scope.Quote(primaryField.DBName)
 	}
 
 	var lastInsertIDReturningSuffix string
@@ -207,21 +190,14 @@ func forceReloadAfterCreateCallback(scope *Scope) {
 	if blankColumnsWithDefaultValue, ok := scope.InstanceGet("aorm:blank_columns_with_default_value"); ok {
 		db := scope.db.New().Table(scope.TableName()).ModelStruct(scope.modelStruct, scope.db.Val)
 		columns := blankColumnsWithDefaultValue.([]string)
-		idv, hasInternalId := scope.InstanceGet("aorm:id")
-		if hasInternalId {
-			if pkf := scope.modelStruct.PrimaryField(); pkf != nil && pkf.StructIndex == nil {
-				db = db.Where(idv.(ID))
-			}
-		} else {
-			if id := scope.modelStruct.GetID(scope.Value); id != nil && !id.IsZero() {
-				// skip id columns
-				quote := func(c string) string { return Quote(scope.Dialect(), c) }
-				for _, f := range id.Fields() {
-					for i, c := range columns {
-						if quote(f.DBName) == c {
-							columns = append(columns[0:i], columns[i:len(columns)-1]...)
-							break
-						}
+		if id := scope.modelStruct.GetID(scope.Value); id != nil && !id.IsZero() {
+			// skip id columns
+			quote := func(c string) string { return Quote(scope.Dialect(), c) }
+			for _, f := range id.Fields() {
+				for i, c := range columns {
+					if quote(f.DBName) == c {
+						columns = append(columns[0:i], columns[i:len(columns)-1]...)
+						break
 					}
 				}
 			}
@@ -242,16 +218,7 @@ func createChildrenCallback(scope *Scope) {
 		return
 	}
 
-	var (
-		id ID
-	)
-	// if is root struct
-	if s := scope.Struct(); s.Root == nil || s.HasManyChild {
-		id = scope.instance.ID()
-	} else {
-		idv, _ := scope.InstanceGet("aorm:id")
-		id = idv.(ID)
-	}
+	var id = scope.instance.ID()
 
 	for _, child := range scope.modelStruct.Children {
 		v := scope.instance.FieldsMap[child.ParentField.Name].Field
@@ -264,7 +231,13 @@ func createChildrenCallback(scope *Scope) {
 			v2.Elem().Set(v)
 			v = v2
 		}
-		childScope := scope.db.NewScope(v.Interface()).InstanceSet("aorm:id", id)
+		childScope := scope.db.NewScope(v.Interface())
+		_, err := CopyIdTo(id, childScope.ID())
+		if err != nil {
+			scope.Err(errors.Wrap(err, "copy ID from parent to child"))
+			return
+		}
+
 		childScope.modelStruct = child
 		if scope.Err(childScope.callCallbacks(childScope.db.parent.callbacks.creates).db.Error) != nil {
 			return
@@ -288,9 +261,10 @@ func afterCreateCallback(scope *Scope) {
 }
 
 func SetIdCallback(scope *Scope) {
-	if _, ok := scope.InstanceGet("aorm:id"); ok {
+	if !scope.ID().IsZero() {
 		return
 	}
+
 	value := scope.Value
 	reflectValue := reflect.ValueOf(value)
 

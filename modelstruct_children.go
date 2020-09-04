@@ -1,97 +1,99 @@
 package aorm
 
 import (
-	"reflect"
-	"strings"
+	"github.com/jinzhu/inflection"
 )
 
-func (this *ModelStruct) addChildField(pth []string, field *StructField) (err error) {
-	var (
-		ms  *ModelStruct
-		typ = indirectType(field.Struct.Type)
-	)
+func (this *ModelStruct) addChildField(field *StructField, childModel *ModelStruct) (err error) {
+	childModel = childModel.Clone()
+	field.Model = childModel
+	var name, _ = ChildName(field)
+	field.DBName = ToDBName(name)
 
-	if ms, err = this.storage.create(typ); err != nil {
-		return
-	}
+	childModel.Name = name
+	childModel.Parent = this
+	childModel.ParentField = field
 
-	this.storage.ModelStructsMap.delete(typ)
-	pth = append(pth, field.Name)
-	ms.Name = strings.Join(pth, "")
-	ms.Parent = this
-	ms.ParentField = field
-
-	if this.Root != nil {
-		ms.Root = this.Root
-	} else {
-		ms.Root = this
-	}
-
-	this.ChildrenByName[field.Name] = ms
-	this.Children = append(this.Children, ms)
+	this.ChildrenByName[field.Name] = childModel
+	this.Children = append(this.Children, childModel)
 
 	if len(this.ChildrenByName) != len(this.Children) {
 		panic("bad langth of children")
 	}
 
-	field.Model = ms
 	field.IsNormal = false
 	field.IsChild = true
 
-	primaryFields := this.PrimaryFields
-	if this.Parent != nil {
-		primaryFields = this.Root.PrimaryFields
-	}
-
-	for _, f := range primaryFields {
-		cf := &StructField{
-			Struct: reflect.StructField{
-				Name: f.Name,
-				Type: f.Struct.Type,
-			},
-			Name:   f.Name,
-			DBName: f.DBName,
-			Tag:    f.Tag,
-			TagSettings: map[string]string{
-				"AUTO_INCREMENT_DISABLED": "AUTO_INCREMENT_DISABLED",
-			},
-			StructIndex:  nil,
-			Data:         map[interface{}]interface{}{},
-			BaseModel:    ms,
-			IsPrimaryKey: true,
-			IsNormal:     true,
-			Assigner:     f.Assigner,
-		}
-		ms.FieldsByName[cf.Name] = cf
-		ms.PrimaryFields = append(ms.PrimaryFields, cf)
-		ms.Fields = append(ms.Fields, cf)
-	}
-
 	relationship := &Relationship{
+		Field:            field,
 		Model:            this,
-		AssociationModel: ms,
+		AssociationModel: childModel,
 		Kind:             "has_one",
 	}
 
-	for i, f := range primaryFields {
-		cf := ms.PrimaryFields[i]
+	for _, f := range childModel.PrimaryFields {
 		relationship.ForeignFieldNames = append(relationship.ForeignFieldNames, f.Name)
 		relationship.ForeignDBNames = append(relationship.ForeignDBNames, f.DBName)
-		relationship.AssociationForeignFieldNames = append(relationship.AssociationForeignFieldNames, cf.Name)
-		relationship.AssociationForeignDBNames = append(relationship.AssociationForeignDBNames, cf.DBName)
+		relationship.AssociationForeignFieldNames = append(relationship.AssociationForeignFieldNames, f.Name)
+		relationship.AssociationForeignDBNames = append(relationship.AssociationForeignDBNames, f.DBName)
 	}
 
 	field.Relationship = relationship
 	this.InlinePreloadFields = append(this.InlinePreloadFields, field.Name)
 	this.RelatedFields = append(this.RelatedFields, field)
-	ms.ForeignKeys = append(ms.ForeignKeys, &ForeignKey{
+	childModel.ParentForeignKey = &ForeignKey{
 		Field:    field,
 		OnDelete: "CASCADE",
 		OnUpdate: "CASCADE",
 		Prepare: func(srcScope, dstScope *Scope, def *ForeignKeyDefinition) {
-			def.Name = ForeignKeyNameOf(def.SrcTableName, field.DBName) + "__parent"
+			def.Name = ForeignKeyNameOf(def.SrcTableName, "parent")
 		},
-	})
-	err = ms.setup(nil, false, nil)
+	}
+	childModel.ForeignKeys = append(childModel.ForeignKeys, childModel.ParentForeignKey)
+
+	for i, child := range childModel.Children {
+		child = child.Clone()
+		child.Parent = childModel
+		childModel.Children[i] = child
+	}
+
+	return
+}
+
+func ChildName(field *StructField) (singular, plural string) {
+	if v := field.TagSettings["CHILD"]; v != "" && v != "CHILD" {
+		if field.TagSettings.Scanner().IsTags(v) {
+			tags := field.TagSettings.TagsOf(v)
+			singular = tags["S"]
+			if plural = tags["P"]; plural == "." {
+				plural = inflection.Plural(singular)
+			}
+		} else {
+			singular = v
+		}
+	}
+
+	if singular == "" || plural == "" && field.Model.Tags != nil {
+		if v := field.Model.Tags["CHILD"]; v != "" && v != "CHILD" {
+			if field.Model.Tags.Scanner().IsTags(v) {
+				tags := field.TagSettings.TagsOf(v)
+				if singular == "" {
+					singular = tags["S"]
+				}
+				if plural == "" {
+					plural = tags["P"]
+				}
+			} else if singular == "" {
+				singular = v
+			}
+		}
+	}
+
+	if singular == "" {
+		singular = field.Name
+	}
+	if plural == "" {
+		plural = inflection.Plural(singular)
+	}
 	return
 }

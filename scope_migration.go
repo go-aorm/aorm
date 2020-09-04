@@ -15,7 +15,7 @@ func (scope *Scope) createJoinTable(field *StructField) {
 			var sqlTypes, primaryKeys []string
 			for idx, fieldName := range relationship.ForeignFieldNames {
 				if field, ok := scope.modelStruct.FieldsByName[fieldName]; ok {
-					foreignKeyStruct := field.clone()
+					foreignKeyStruct := field.Clone()
 					foreignKeyStruct.IsPrimaryKey = false
 					foreignKeyStruct.TagSettings["IS_JOINTABLE_FOREIGNKEY"] = "true"
 					delete(foreignKeyStruct.TagSettings, "AUTO_INCREMENT")
@@ -26,7 +26,7 @@ func (scope *Scope) createJoinTable(field *StructField) {
 
 			for idx, fieldName := range relationship.AssociationForeignFieldNames {
 				if field, ok := toStruct.FieldsByName[fieldName]; ok {
-					foreignKeyStruct := field.clone()
+					foreignKeyStruct := field.Clone()
 					foreignKeyStruct.IsPrimaryKey = false
 					foreignKeyStruct.TagSettings["IS_JOINTABLE_FOREIGNKEY"] = "true"
 					delete(foreignKeyStruct.TagSettings, "AUTO_INCREMENT")
@@ -189,7 +189,7 @@ func (scope *Scope) autoMigrate(parentScope *Scope) *Scope {
 		}
 	} else {
 		for _, field := range scope.Struct().Fields {
-			if field.IsNormal && !field.IsReadOnly && field.StructIndex != nil {
+			if field.IsNormal && !field.IsReadOnly {
 				if !scope.Dialect().HasColumn(tableName, field.DBName) {
 					sqlTag := scope.Dialect().DataTypeOf(field.Structure())
 					scope.Raw(fmt.Sprintf("ALTER TABLE %v ADD %v %v;", quotedTableName, scope.Quote(field.DBName), sqlTag)).Exec()

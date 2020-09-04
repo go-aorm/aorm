@@ -71,18 +71,10 @@ func (scope *Scope) whereSQL() (sql string) {
 	switch rt.Kind() {
 	case reflect.Struct:
 		if s := scope.Struct(); s.HasID() {
-			if s.PrimaryField().StructIndex == nil {
-				if id, ok := scope.InstanceGet("aorm:id"); ok {
-					scope.Search.whereConditions = append(scope.Search.whereConditions, nil)
-					copy(scope.Search.whereConditions[1:], scope.Search.whereConditions)
-					scope.Search.whereConditions[0] = &Clause{Query: id.(ID)}
-				}
-			} else {
-				if id := scope.Struct().GetID(scope.Value); !id.IsZero() {
-					for _, field := range scope.PrimaryFields() {
-						sql := fmt.Sprintf("%v.%v = %v", quotedTableName, scope.Quote(field.DBName), scope.AddToVars(field.Field.Interface()))
-						primaryConditions = append(primaryConditions, sql)
-					}
+			if id := scope.Struct().GetID(scope.Value); !id.IsZero() {
+				for _, field := range scope.PrimaryFields() {
+					sql := fmt.Sprintf("%v.%v = %v", quotedTableName, scope.Quote(field.DBName), scope.AddToVars(field.Field.Interface()))
+					primaryConditions = append(primaryConditions, sql)
 				}
 			}
 		}
@@ -136,9 +128,9 @@ func (scope *Scope) whereSQL() (sql string) {
 func (scope *Scope) selectSQL() (sql string) {
 	if scope.Search.selects == nil {
 		var tbName string
-		//if len(scope.Search.joinConditions) > 0 || len(scope.Search.inlinePreload) {
+		// if len(scope.Search.joinConditions) > 0 || len(scope.Search.inlinePreload) {
 		tbName = scope.QuotedTableName() + "."
-		//}
+		// }
 		var columns []string
 		for _, f := range scope.Struct().Fields {
 			if f.IsNormal || f.Selector != nil {

@@ -64,13 +64,14 @@ func (this *StructField) CallMethodCallback(name string, object reflect.Value, i
 	this.CallMethodCallbackArgs(name, object, in)
 }
 
-func (this StructField) clone() *StructField {
-	clone := this
+func (this *StructField) Clone() *StructField {
+	clone := *this
 	clone.TagSettings = map[string]string{}
 	clone.Data = map[interface{}]interface{}{}
 
 	if this.Relationship != nil {
 		relationship := *this.Relationship
+		relationship.Field = &clone
 		clone.Relationship = &relationship
 	}
 

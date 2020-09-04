@@ -27,7 +27,6 @@ type ModelStruct struct {
 	Name  string
 	Value interface{}
 
-	Root,
 	Parent,
 	parentTemp *ModelStruct
 	HasManyChild bool
@@ -58,7 +57,37 @@ type ModelStruct struct {
 	HasManyChildrenByName          map[string]*ModelStruct
 	InlinePreloadFields            []string
 	ForeignKeys                    []*ForeignKey
+	ParentForeignKey               *ForeignKey
 	Tags                           TagSetting
+}
+
+func (this *ModelStruct) Clone() *ModelStruct {
+	var clone = *this
+	clone.DynamicFieldsByName = map[string]*StructField{}
+	clone.FieldsByName = map[string]*StructField{}
+	clone.virtualFields = map[string]*VirtualField{}
+	clone.ChildrenByName = map[string]*ModelStruct{}
+	clone.HasManyChildrenByName = map[string]*ModelStruct{}
+
+	for k, v := range this.DynamicFieldsByName {
+		clone.DynamicFieldsByName[k] = v
+	}
+	for k, v := range this.FieldsByName {
+		clone.FieldsByName[k] = v
+	}
+	for k, v := range this.virtualFields {
+		clone.virtualFields[k] = v
+	}
+	for k, v := range this.ChildrenByName {
+		clone.ChildrenByName[k] = v
+	}
+	for k, v := range this.HasManyChildrenByName {
+		clone.HasManyChildrenByName[k] = v
+	}
+
+	clone.ScopeCallbacks.Registrator = *this.ScopeCallbacks.Registrator.Clone()
+	clone.TypeCallbacks.TypeRegistrator = *this.TypeCallbacks.TypeRegistrator.Clone()
+	return &clone
 }
 
 func (this *ModelStruct) PkgPath() string {
@@ -109,71 +138,74 @@ func (this *ModelStruct) TableName(ctx context.Context, singular bool) string {
 	}
 
 	if this.Type != nil {
-		prefix := TableNamePrefixOf(this.PkgPath())
-
-		if tname := this.Tags["TABLE_NAME"]; tname != "" {
-			this.Tags["TABLE"] = tname
-			delete(this.Tags, "TABLE_NAME")
-		}
-
-		if tname := this.Tags.GetTags("TABLE"); tname != nil {
-			if this.SingularTableName = tname.GetStringAlias("SINGULAR", "S"); this.SingularTableName != "" && this.SingularTableName[0] == '.' {
-				this.SingularTableName = prefix + "_" + this.SingularTableName[1:]
+		if this.Parent == nil {
+			prefix := TableNamePrefixOf(this.PkgPath())
+			if tname := this.Tags["TABLE_NAME"]; tname != "" {
+				this.Tags["TABLE"] = tname
+				delete(this.Tags, "TABLE_NAME")
 			}
-			if this.PluralTableName = tname.GetStringAlias("PLURAL", "P"); this.PluralTableName != "" && this.PluralTableName[0] == '.' {
-				this.PluralTableName = prefix + "_" + this.PluralTableName[1:]
-			}
-
-			if singular {
-				if this.SingularTableName != "" {
-					return this.SingularTableName
+			if tname := this.Tags.GetTags("TABLE"); tname != nil {
+				if this.SingularTableName = tname.GetStringAlias("SINGULAR", "S"); this.SingularTableName != "" && this.SingularTableName[0] == '.' {
+					this.SingularTableName = prefix + "_" + this.SingularTableName[1:]
 				}
-			} else if this.PluralTableName != "" {
-				return this.PluralTableName
-			}
-		} else if tname := this.Tags.GetString("TABLE"); tname != "" {
-			if tname[0] == '.' {
-				tname = prefix + "_" + tname[1:]
-			}
-			this.SingularTableName = tname
-			this.PluralTableName = inflection.Plural(tname)
-		}
+				if this.PluralTableName = tname.GetStringAlias("PLURAL", "P"); this.PluralTableName != "" && this.PluralTableName[0] == '.' {
+					this.PluralTableName = prefix + "_" + this.PluralTableName[1:]
+				}
 
-		// Set default table name
-		if tabler, ok := this.Value.(TableNamePlurabler); ok {
-			if this.SingularTableName == "" {
-				if this.SingularTableName = tabler.TableName(true); this.SingularTableName[0] == '.' {
-					this.SingularTableName = TableNameOfPrefix(prefix, this.SingularTableName)[0]
+				if singular {
+					if this.SingularTableName != "" {
+						return this.SingularTableName
+					}
+				} else if this.PluralTableName != "" {
+					return this.PluralTableName
 				}
-			}
-			if this.PluralTableName == "" {
-				if this.PluralTableName = tabler.TableName(false); this.PluralTableName[0] == '.' {
-					this.PluralTableName = TableNameOfPrefix(prefix, this.PluralTableName)[0]
+			} else if tname := this.Tags.GetString("TABLE"); tname != "" {
+				if tname[0] == '.' {
+					tname = prefix + "_" + tname[1:]
 				}
+				this.SingularTableName = tname
+				this.PluralTableName = inflection.Plural(tname)
 			}
-		} else if tabler, ok := this.Value.(TableNamer); ok {
-			if this.PluralTableName == "" {
-				this.PluralTableName = tabler.TableName()
-				if this.PluralTableName[0] == '.' {
-					this.PluralTableName = TableNameOfPrefix(prefix, this.PluralTableName)[0]
+
+			// Set default table name
+			if tabler, ok := this.Value.(TableNamePlurabler); ok {
+				if this.SingularTableName == "" {
+					if this.SingularTableName = tabler.TableName(true); this.SingularTableName[0] == '.' {
+						this.SingularTableName = TableNameOfPrefix(prefix, this.SingularTableName)[0]
+					}
 				}
-			}
-			if this.SingularTableName == "" {
-				this.SingularTableName = this.PluralTableName
+				if this.PluralTableName == "" {
+					if this.PluralTableName = tabler.TableName(false); this.PluralTableName[0] == '.' {
+						this.PluralTableName = TableNameOfPrefix(prefix, this.PluralTableName)[0]
+					}
+				}
+			} else if tabler, ok := this.Value.(TableNamer); ok {
+				if this.PluralTableName == "" {
+					this.PluralTableName = tabler.TableName()
+					if this.PluralTableName[0] == '.' {
+						this.PluralTableName = TableNameOfPrefix(prefix, this.PluralTableName)[0]
+					}
+				}
+				if this.SingularTableName == "" {
+					this.SingularTableName = this.PluralTableName
+				}
+			} else {
+				var name = this.Name
+				if name == "" {
+					name = this.Type.Name()
+				}
+				if this.SingularTableName == "" {
+					this.SingularTableName = TableNameOfPrefix(prefix, ToDBName(name))[0]
+				}
+				if this.PluralTableName == "" {
+					this.PluralTableName = inflection.Plural(this.SingularTableName)
+				}
 			}
 		} else {
-			var (
-				name = this.Name
-			)
-			if name == "" {
-				name = this.Type.Name()
-			}
-			if this.SingularTableName == "" {
-				this.SingularTableName = TableNameOfPrefix(prefix, ToDBName(name))[0]
-			}
-			if this.PluralTableName == "" {
-				this.PluralTableName = inflection.Plural(this.SingularTableName)
-			}
+			singular, plural := ChildName(this.ParentField)
+			dbName := ToDBName(singular)
+			this.SingularTableName = this.Parent.TableName(ctx, false) + "__" + dbName
+			this.PluralTableName = this.Parent.TableName(ctx, false) + "__" + ToDBName(plural)
 		}
 	}
 	return DefaultTableNameHandler(ctx, singular, this)
@@ -291,7 +323,7 @@ func (this *ModelStruct) FieldPathQueryOf(fieldName string) (iq *FieldPathQuery)
 			if typ.Kind() == reflect.Ptr {
 				typ = typ.Elem()
 			}
-			//iq.Struct = iq.Struct.BaseModel.ParentField.Relationship.AssociationModel.PrimaryField()
+			// iq.Struct = iq.Struct.BaseModel.ParentField.Relationship.AssociationModel.PrimaryField()
 			rFieldName = fieldName
 		}
 		parts := strings.Split(rFieldName, ".")
@@ -367,13 +399,11 @@ func (this *ModelStruct) GetID(record interface{}) ID {
 	default:
 		var values []IDValuer
 		for _, f := range this.PrimaryFields {
-			if f.StructIndex != nil {
-				rv := rv.FieldByIndex(f.StructIndex)
-				if valuer, err := f.IDOf(rv.Interface()); err != nil {
-					panic(errors.Wrapf(err, "field %s#%q", this.Fqn(), f.Name))
-				} else {
-					values = append(values, valuer)
-				}
+			rv := rv.FieldByIndex(f.StructIndex)
+			if valuer, err := f.IDOf(rv.Interface()); err != nil {
+				panic(errors.Wrapf(err, "field %s#%q", this.Fqn(), f.Name))
+			} else {
+				values = append(values, valuer)
 			}
 		}
 		if len(values) == 0 {

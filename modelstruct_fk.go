@@ -47,6 +47,10 @@ type ForeignKey struct {
 	OnUpdate, OnDelete string
 }
 
+func (this ForeignKey) Clone() *ForeignKey {
+	return &this
+}
+
 func (this *ForeignKey) Definition(scope *Scope) (def ForeignKeyDefinition) {
 	rel := this.Field.Relationship
 	switch rel.Kind {

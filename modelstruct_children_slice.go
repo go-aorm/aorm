@@ -7,21 +7,13 @@ import (
 )
 
 func (this *ModelStruct) addChildSliceField(pth []string, field *StructField, ms *ModelStruct) (err error) {
+	panic("not implemented")
 	this.storage.ModelStructsMap.delete(ms.Type)
 	pth = append(pth, field.Name)
 	ms.Name = strings.Join(pth, "")
 	ms.ParentField = field
 	ms.HasManyChild = true
 	ms.Parent = this
-	if this.Root != nil {
-		ms.Root = this.Root
-	} else {
-		ms.Root = this
-	}
-
-	if len(ms.PrimaryFields) == 0 {
-		return fmt.Errorf("Model %s#%s does not have primary field", ms.Root.Type, field.Name)
-	}
 
 	this.HasManyChildrenByName[field.Name] = ms
 	this.HasManyChildren = append(this.Children, ms)
@@ -29,9 +21,6 @@ func (this *ModelStruct) addChildSliceField(pth []string, field *StructField, ms
 	field.Model = ms
 
 	primaryFields := this.PrimaryFields
-	if this.Parent != nil {
-		primaryFields = this.Root.PrimaryFields
-	}
 
 	belongsToRel := &Relationship{
 		Model:            ms,

@@ -19,6 +19,18 @@ type TypeCallbacksRegistrator struct {
 	mu sync.RWMutex
 }
 
+func (this TypeCallbacksRegistrator) Clone() *TypeCallbacksRegistrator {
+	var m = map[string]map[CallbackPosition][]TypeCallback{}
+	for k, v := range this.m {
+		m[k] = map[CallbackPosition][]TypeCallback{}
+		for k2, v2 := range v {
+			m[k][k2] = v2
+		}
+	}
+	this.m = m
+	return &this
+}
+
 func (this *TypeCallbacksRegistrator) Register(pos CallbackPosition, name []string, f ...TypeCallback) {
 	this.mu.Lock()
 	defer this.mu.Unlock()
@@ -101,6 +113,14 @@ func (this *TypeCallbacks) TypeCallbackName(pos CallbackPosition, name string, f
 
 func (this *TypeCallbacks) Migrate(pos CallbackPosition, f ...TypeCallback) *TypeCallbacks {
 	return this.TypeCallbackName(pos, "Migrate", f...)
+}
+
+func (this *TypeCallbacks) AfterMigrate(f ...TypeCallback) *TypeCallbacks {
+	return this.Migrate(After, f...)
+}
+
+func (this *TypeCallbacks) BeforeMigrate(f ...TypeCallback) *TypeCallbacks {
+	return this.Migrate(Before, f...)
 }
 
 func (this *TypeCallbacks) CreateTable(pos CallbackPosition, f ...TypeCallback) *TypeCallbacks {

@@ -117,10 +117,8 @@ func updateCallback(scope *Scope) {
 
 	if len(scope.PrimaryFields()) > 0 && scope.PrimaryKeyZero() {
 		if scope.db.SingleUpdate() {
-			if _, ok := scope.InstanceGet("aorm:id"); !ok {
-				_ = scope.Err(ErrSingleUpdateKey)
-				return
-			}
+			scope.Err(ErrSingleUpdateKey)
+			return
 		}
 	}
 
@@ -142,26 +140,33 @@ func updateCallback(scope *Scope) {
 // updateChildrenCallback
 func updateChildrenCallback(scope *Scope) {
 	if _, ok := scope.Get("aorm:update_column"); !ok && scope.db.RowsAffected == 1 {
-		var (
-			id ID
-		)
-		if idv, ok := scope.InstanceGet("aorm:id"); ok {
-			id = idv.(ID)
-		} else {
-			id = scope.instance.ID()
-		}
+		var id = scope.instance.ID()
 		for _, child := range scope.modelStruct.Children {
 			v := scope.instance.FieldsMap[child.ParentField.Name].Field
 			if v.Kind() != reflect.Ptr {
 				v = v.Addr()
 			} else if v.IsNil() {
-				scope.Err(scope.db.NewModelScope(child, child.Value).InstanceSet("aorm:id", id).callCallbacks(scope.db.callbacks.deletes).Error())
+				childScope := scope.db.NewModelScope(child, child.Value)
+				if _, err := CopyIdTo(id, childScope.ID()); err != nil {
+					scope.Err(err)
+					return
+				}
+				if err := scope.Err(childScope.callCallbacks(scope.db.callbacks.deletes).Error()); err != nil {
+					return
+				}
 				continue
 			}
 			var newScope = func() *Scope {
-				return scope.db.NewModelScope(child, v.Interface()).InstanceSet("aorm:id", id).Set("aorm:disable_scope_transaction", true)
+				childScope := scope.db.NewModelScope(child, v.Interface())
+				if _, err := CopyIdTo(id, childScope.ID()); err != nil {
+					scope.Err(err)
+				}
+				return childScope.Set("aorm:disable_scope_transaction", true)
 			}
 			childScope := newScope()
+			if scope.HasError() {
+				return
+			}
 
 			newDB := childScope.callCallbacks(childScope.db.parent.callbacks.updates).db
 			if newDB.Error == nil && newDB.RowsAffected == 0 {

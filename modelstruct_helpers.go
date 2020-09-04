@@ -2,7 +2,10 @@ package aorm
 
 // StructOf get value's model struct, relationships based on struct and tag definition for value
 func StructOf(value interface{}) *ModelStruct {
-	ms, _ := modelStructStorage.GetOrNew(value)
+	ms, err := modelStructStorage.GetOrNew(value)
+	if err != nil {
+		panic(err)
+	}
 	return ms
 }
 

@@ -47,9 +47,7 @@ func (s *Scope) AutoInlinePreload() *Scope {
 					if tag := f.TagSettings["PRELOAD"]; tag != "" {
 						for _, fieldName := range strings.Split(tag, ",") {
 							fieldName = strings.TrimSpace(fieldName)
-							if fieldName == "" {
-								continue
-							}
+							if fieldName == "" {continue}
 							opt.Select = append(opt.Select, fieldName)
 						}
 					}

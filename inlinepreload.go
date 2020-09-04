@@ -143,7 +143,7 @@ func (p *InlinePreloader) GetFields() []*StructField {
 			}
 		} else {
 			for _, f := range p.Scope.GetNonRelatedStructFields() {
-				if !f.IsReadOnly && f.StructIndex != nil {
+				if !f.IsReadOnly {
 					p.StructFields = append(p.StructFields, f)
 				}
 			}
