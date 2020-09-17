@@ -55,30 +55,8 @@ func (scope *Scope) buildSelectQuery(clause *Clause) (result *Query) {
 	return
 }
 
-func (scope *Scope) whereSQL() (sql string) {
-	var (
-		quotedTableName                                = scope.QuotedTableName()
-		deletedAtField, hasDeletedAtField              = scope.Struct().FieldsByName["DeletedAt"]
-		primaryConditions, andConditions, orConditions []string
-	)
-
-	if !scope.Search.Unscoped && hasDeletedAtField {
-		sql := fmt.Sprintf("%v.%v IS NULL", quotedTableName, scope.Quote(deletedAtField.DBName))
-		primaryConditions = append(primaryConditions, sql)
-	}
-
-	rt := indirectType(reflect.TypeOf(scope.Value))
-	switch rt.Kind() {
-	case reflect.Struct:
-		if s := scope.Struct(); s.HasID() {
-			if id := scope.Struct().GetID(scope.Value); !id.IsZero() {
-				for _, field := range scope.PrimaryFields() {
-					sql := fmt.Sprintf("%v.%v = %v", quotedTableName, scope.Quote(field.DBName), scope.AddToVars(field.Field.Interface()))
-					primaryConditions = append(primaryConditions, sql)
-				}
-			}
-		}
-	}
+func (scope *Scope) joinWhereConditions(primaryConditions ...string) (sql string) {
+	var andConditions, orConditions []string
 
 	for _, clause := range scope.Search.whereConditions {
 		if sql, err := clause.BuildCondition(scope, true).Build(scope); err != nil {
@@ -123,6 +101,37 @@ func (scope *Scope) whereSQL() (sql string) {
 		sql = "WHERE " + combinedSQL
 	}
 	return
+}
+
+func (scope *Scope) whereSQL() (sql string) {
+	if scope.Value == nil && scope.modelStruct == nil {
+		return scope.joinWhereConditions()
+	}
+
+	var (
+		quotedTableName                   = scope.QuotedTableName()
+		deletedAtField, hasDeletedAtField = scope.Struct().FieldsByName["DeletedAt"]
+		primaryConditions                 []string
+	)
+
+	if !scope.Search.Unscoped && hasDeletedAtField {
+		sql := fmt.Sprintf("%v.%v IS NULL", quotedTableName, scope.Quote(deletedAtField.DBName))
+		primaryConditions = append(primaryConditions, sql)
+	}
+
+	rt := indirectType(reflect.TypeOf(scope.Value))
+	switch rt.Kind() {
+	case reflect.Struct:
+		if s := scope.Struct(); s.HasID() {
+			if id := scope.Struct().GetID(scope.Value); !id.IsZero() {
+				for _, field := range scope.PrimaryFields() {
+					sql := fmt.Sprintf("%v.%v = %v", quotedTableName, scope.Quote(field.DBName), scope.AddToVars(field.Field.Interface()))
+					primaryConditions = append(primaryConditions, sql)
+				}
+			}
+		}
+	}
+	return scope.joinWhereConditions(primaryConditions...)
 }
 
 func (scope *Scope) selectSQL() (sql string) {
@@ -202,7 +211,10 @@ func (scope *Scope) orderSQL() string {
 }
 
 func (scope *Scope) limitAndOffsetSQL() string {
-	return scope.Dialect().LimitAndOffsetSQL(scope.Search.limit, scope.Search.offset)
+	if scope.Operation != OpDelete {
+		return scope.Dialect().LimitAndOffsetSQL(scope.Search.limit, scope.Search.offset)
+	}
+	return ""
 }
 
 func (scope *Scope) groupSQL() string {

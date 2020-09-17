@@ -91,24 +91,27 @@ func queryCallback(scope *Scope) {
 		if sender != nil {
 			elem = reflect.New(resultType).Elem()
 		}
+		if elem.Kind() == reflect.Struct {
+			elem = elem.Addr()
+		}
 
-		result := scope.New(elem.Addr().Interface())
-		scope.scan(rows, columns, result.Instance().Fields, elem.Addr().Interface())
+		result := scope.New(elem.Interface())
+		scope.scan(rows, columns, result.Instance().Fields, result.Value)
 
 		if !scope.HasError() {
-			if acv, ok := elem.Interface().(interface {
+			if acv, ok := result.Value.(interface {
 				AfterScan(*Scope)
 			}); ok {
 				acv.AfterScan(scope)
-			} else if acv, ok := elem.Interface().(interface {
+			} else if acv, ok := result.Value.(interface {
 				AfterScan(*DB)
 			}); ok {
 				acv.AfterScan(scope.DB())
-			} else if acv, ok := elem.Addr().Interface().(interface {
+			} else if acv, ok := result.Value.(interface {
 				AfterScan(*Scope)
 			}); ok {
 				acv.AfterScan(scope)
-			} else if acv, ok := elem.Addr().Interface().(interface {
+			} else if acv, ok := result.Value.(interface {
 				AfterScan(*DB)
 			}); ok {
 				acv.AfterScan(scope.DB())

@@ -212,13 +212,17 @@ func (s *DB) NewScope(value interface{}) *Scope {
 	return s.NewModelScope(s.modelStruct, value)
 }
 
+func (s *DB) BlankScope() *Scope {
+	return s.NewModelScope(nil, nil)
+}
+
 // NewModelScope create a scope for current operation with ModelStruct
 func (s *DB) NewModelScope(model *ModelStruct, value interface{}) *Scope {
 	dbClone := s.clone()
 	dbClone.Val = value
 	dbClone.modelStruct = model
 
-	if model == nil {
+	if model == nil && value != nil {
 		model = StructOf(value)
 	}
 

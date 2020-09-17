@@ -394,8 +394,9 @@ func (scope *Scope) CombinedConditionSql() string {
 }
 
 // Raw set raw sql
-func (scope *Scope) Raw(sql string) *Scope {
+func (scope *Scope) Raw(sql string, values ...interface{}) *Scope {
 	scope.Query.Query = strings.Replace(sql, "$$$", "?", -1)
+	scope.Query.AddArgs(values...)
 	return scope
 }
 
@@ -761,7 +762,11 @@ func (scope *Scope) exists() (ok bool, err error) {
 		}
 		return
 	}
-	err = row.Scan(&ok)
+
+	if err = row.Scan(&ok); err == sql.ErrNoRows {
+		err = nil
+		return
+	}
 	return
 }
 

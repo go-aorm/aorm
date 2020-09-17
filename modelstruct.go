@@ -326,6 +326,9 @@ func (this *ModelStruct) FieldPathQueryOf(fieldName string) (iq *FieldPathQuery)
 			// iq.Struct = iq.Struct.BaseModel.ParentField.Relationship.AssociationModel.PrimaryField()
 			rFieldName = fieldName
 		}
+		if rFieldName == "" {
+			rFieldName = fieldName
+		}
 		parts := strings.Split(rFieldName, ".")
 		iq.SetQuery("{" + strings.Join(parts[0:len(parts)-1], ".") + "}." + iq.Struct.DBName)
 	}

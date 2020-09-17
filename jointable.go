@@ -21,13 +21,13 @@ type JoinTableSource struct {
 
 // JoinTableHandler default join table handler
 type JoinTableHandler struct {
-	tableNameFunc func(singular bool) string
+	tableNameFunc JoinTableHandlerNamer
 	source        JoinTableSource
 	destination   JoinTableSource
 }
 
 func (this *JoinTableHandler) TableName(singular bool) string {
-	return this.tableNameFunc(singular)
+	return this.tableNameFunc(singular, &this.source, &this.destination)
 }
 
 func (this *JoinTableHandler) Source() JoinTableSource {
@@ -49,7 +49,7 @@ func (this *JoinTableHandler) DestinationForeignKeys() []JoinTableForeignKey {
 }
 
 // Setup initialize a default join table handler
-func (this *JoinTableHandler) Setup(relationship *Relationship, tableName func(singular bool) string, source, destination *ModelStruct) {
+func (this *JoinTableHandler) Setup(relationship *Relationship, tableName JoinTableHandlerNamer, source, destination *ModelStruct) {
 	this.tableNameFunc = tableName
 	this.source = JoinTableSource{ModelStruct: source}
 	this.source.ForeignKeys = []JoinTableForeignKey{}
@@ -96,7 +96,7 @@ func (this JoinTableHandler) updateConditionMap(conditionMap map[string]interfac
 // Add create relationship in join table for source and destination
 func (this JoinTableHandler) Add(handler JoinTableHandlerInterface, db *DB, source interface{}, destination interface{}) (err error) {
 	var (
-		scope        = db.NewScope("")
+		scope        = db.BlankScope()
 		conditionMap = map[string]interface{}{}
 	)
 
@@ -139,23 +139,32 @@ func (this JoinTableHandler) Add(handler JoinTableHandlerInterface, db *DB, sour
 // Delete delete relationship in join table for sources
 func (this JoinTableHandler) Delete(handler JoinTableHandlerInterface, db *DB, sources ...interface{}) error {
 	var (
-		scope        = db.NewScope(nil)
-		conditions   []string
-		values       []interface{}
+		table        = handler.Table(db)
+		scope        = db.Table(table).BlankScope()
 		conditionMap = map[string]interface{}{}
 	)
 
 	this.updateConditionMap(conditionMap, db, []JoinTableSource{this.source, this.destination}, sources...)
 
 	for key, value := range conditionMap {
-		conditions = append(conditions, fmt.Sprintf("%v = ?", scope.Quote(key)))
-		values = append(values, value)
+		scope.Search.Where(fmt.Sprintf("%v = ?", scope.Quote(key)), value)
 	}
 
-	return db.
-		Table(handler.Table(db)).
-		Where(strings.Join(conditions, " AND "), values...).
-		Delete(reflect.New(handler.Destination().ModelStruct.Type).Interface()).Error
+	sql := fmt.Sprintf(
+		"DELETE FROM %v%v",
+		scope.Quote(table),
+		addExtraSpaceIfExist(scope.whereSQL()),
+	)
+
+	scope.Raw(sql)
+
+	if scope.checkDryRun() {
+		return nil
+	}
+
+	scope.log(LOG_DELETE).Exec()
+
+	return scope.Error()
 }
 
 // JoinWith query with `Join` conditions

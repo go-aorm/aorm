@@ -34,7 +34,6 @@ func (scope *Scope) createJoinTable(field *StructField) {
 					primaryKeys = append(primaryKeys, scope.Quote(relationship.AssociationForeignDBNames[idx]))
 				}
 			}
-
 			ddl := fmt.Sprintf("CREATE TABLE %v (%v, PRIMARY KEY (%v))%s",
 				scope.Quote(joinTable), strings.Join(sqlTypes, ","),
 				strings.Join(primaryKeys, ","),

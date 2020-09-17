@@ -136,11 +136,16 @@ func saveAfterAssociationsCallback(scope *Scope) {
 						}
 					}
 
-					if !ZeroIdOf(newScope.Value) && saveReference {
+					if !ZeroIdOf(newScope.Value) && saveReference && relationship.Kind != "many_to_many" {
 						if joinTableHandler := relationship.JoinTableHandler; joinTableHandler != nil {
 							scope.Err(joinTableHandler.Add(joinTableHandler, newDB, scope.Value, newScope.Value))
 						}
 					}
+				}
+
+				if relationship.Kind == "many_to_many" {
+					assoc := &Association{scope: scope, column: field.Name, field: field}
+					scope.Err(assoc.Replace(field.Field.Interface()).Error())
 				}
 			default:
 				elem := value.Addr().Interface()

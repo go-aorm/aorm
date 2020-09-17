@@ -30,7 +30,8 @@ func (this *ModelStructStorage) getOrNew(value interface{}, pth []string, embedd
 
 	var reflectType reflect.Type
 	if reflectType = AcceptableTypeForModelStructInterface(value); reflectType == nil {
-		return nil, errors.New("bad value type")
+		t := indirectType(reflect.TypeOf(value))
+		return nil, errors.New("bad value type: " + t.PkgPath() + "." + t.Name())
 	}
 	reflectType = indirectType(reflectType)
 

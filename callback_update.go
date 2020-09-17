@@ -147,25 +147,40 @@ func updateChildrenCallback(scope *Scope) {
 				v = v.Addr()
 			} else if v.IsNil() {
 				childScope := scope.db.NewModelScope(child, child.Value)
-				if _, err := CopyIdTo(id, childScope.ID()); err != nil {
+				if childID, err := CopyIdTo(id, childScope.ID()); err != nil {
 					scope.Err(err)
 					return
+				} else {
+					childID.SetTo(childScope.Value)
 				}
 				if err := scope.Err(childScope.callCallbacks(scope.db.callbacks.deletes).Error()); err != nil {
 					return
 				}
 				continue
 			}
+
+			childScope := scope.db.NewModelScope(child, v.Interface()).Set("aorm:disable_scope_transaction", true)
+			if childScope.ID().IsZero() {
+				if childID, err := CopyIdTo(id, childScope.ID()); err != nil {
+					scope.Err(err)
+					return
+				} else {
+					childID.SetTo(childScope.Value)
+				}
+				if scope.Err(childScope.callCallbacks(childScope.db.parent.callbacks.creates).Error()) != nil {
+					return
+				}
+				continue
+			}
+
 			var newScope = func() *Scope {
 				childScope := scope.db.NewModelScope(child, v.Interface())
-				if _, err := CopyIdTo(id, childScope.ID()); err != nil {
+				if childID, err := CopyIdTo(id, childScope.ID()); err != nil {
 					scope.Err(err)
+				} else {
+					childID.SetTo(childScope.Value)
 				}
 				return childScope.Set("aorm:disable_scope_transaction", true)
-			}
-			childScope := newScope()
-			if scope.HasError() {
-				return
 			}
 
 			newDB := childScope.callCallbacks(childScope.db.parent.callbacks.updates).db

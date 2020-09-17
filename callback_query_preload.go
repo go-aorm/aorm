@@ -328,7 +328,6 @@ func (scope *Scope) handleManyToManyPreload(field *Field, conditions *Conditions
 		// register foreign keys in join tables
 		var joinTableFields []*Field
 		for _, key := range sourceKeys {
-			fmt.Println(key.AssociationField.Struct.Type)
 			joinTableFields = append(joinTableFields, &Field{
 				StructField: &StructField{
 					DBName:   key.DBName,

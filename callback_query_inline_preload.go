@@ -99,10 +99,6 @@ func (scope *Scope) handleBelongsToInlinePreload(rootScope, parentScope *Scope, 
 	)
 	scope.Search.Table(dbName)
 
-	if field.IsChild {
-		scope.Search.ignorePrimaryFields = true
-	}
-
 	for i, fk := range relation.ForeignDBNames {
 		query[i] = fmt.Sprintf("%v.%v = %v.%v", dbName, relation.AssociationForeignDBNames[i], rqtn, fk)
 	}

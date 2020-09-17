@@ -7,6 +7,11 @@ import (
 func (this *ModelStruct) addChildField(field *StructField, childModel *ModelStruct) (err error) {
 	childModel = childModel.Clone()
 	field.Model = childModel
+
+	// reset table names
+	childModel.PluralTableName = ""
+	childModel.SingularTableName = ""
+
 	var name, _ = ChildName(field)
 	field.DBName = ToDBName(name)
 

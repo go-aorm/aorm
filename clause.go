@@ -15,10 +15,14 @@ type Clause struct {
 func (clause *Clause) BuildCondition(scope *Scope, include bool) (result Query) {
 	var (
 		quotedTableName  = scope.QuotedTableName()
-		quotedPrimaryKey = scope.Quote(scope.PrimaryKeyDbName())
+		quotedPrimaryKey string
 		equalSQL         = "="
 		inSQL            = "IN"
 	)
+
+	if scope.Struct() != nil {
+		quotedPrimaryKey = scope.Quote(scope.PrimaryKeyDbName())
+	}
 
 	// If building not conditions
 	if !include {
@@ -71,14 +75,16 @@ func (clause *Clause) BuildCondition(scope *Scope, include bool) (result Query) 
 		if value == "" {
 			return
 		}
-		if relField, ok := scope.Struct().FieldsByName[value]; ok && relField.Relationship != nil {
-			panic("not implemented")
-			return
-		}
-		if isNumberRegexp.MatchString(value) {
-			result.Query = fmt.Sprintf("(%v.%v %s ?)", quotedTableName, quotedPrimaryKey, equalSQL)
-			result.AddArgs(value)
-			return
+		if scope.Struct() != nil {
+			if relField, ok := scope.Struct().FieldsByName[value]; ok && relField.Relationship != nil {
+				panic("not implemented")
+				return
+			}
+			if isNumberRegexp.MatchString(value) {
+				result.Query = fmt.Sprintf("(%v.%v %s ?)", quotedTableName, quotedPrimaryKey, equalSQL)
+				result.AddArgs(value)
+				return
+			}
 		}
 
 		if !include {

@@ -28,6 +28,9 @@ func (this Id) SetValue(value ...interface{}) (_ ID, err error) {
 		this.values = make([]IDValuer, l, l)
 		for i, v := range value {
 			switch t := v.(type) {
+			case []IDValuer:
+				this.values = t
+				return this, nil
 			case IDValuer:
 				this.values[i] = t
 			default:

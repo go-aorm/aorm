@@ -54,12 +54,6 @@ func updateTimeStampForCreateCallback(scope *Scope) {
 				createdAtField.Set(now)
 			}
 		}
-
-		if updatedAtField, ok := scope.FieldByName("UpdatedAt"); ok {
-			if updatedAtField.IsBlank {
-				updatedAtField.Set(now)
-			}
-		}
 	}
 }
 
@@ -231,13 +225,13 @@ func createChildrenCallback(scope *Scope) {
 			v2.Elem().Set(v)
 			v = v2
 		}
-		childScope := scope.db.NewScope(v.Interface())
-		_, err := CopyIdTo(id, childScope.ID())
+		childScope := scope.db.NewModelScope(child, v.Interface())
+		childID, err := CopyIdTo(id, childScope.ID())
 		if err != nil {
 			scope.Err(errors.Wrap(err, "copy ID from parent to child"))
 			return
 		}
-
+		childID.SetTo(childScope.Value)
 		childScope.modelStruct = child
 		if scope.Err(childScope.callCallbacks(childScope.db.parent.callbacks.creates).db.Error) != nil {
 			return

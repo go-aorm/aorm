@@ -2,7 +2,7 @@ package aorm
 
 // Struct get value's model struct, relationships based on struct and tag definition
 func (scope *Scope) Struct() *ModelStruct {
-	if scope.modelStruct == nil {
+	if scope.modelStruct == nil && scope.Value != nil {
 		ms, err := scope.db.modelStructStorage.GetOrNew(scope.Value)
 		if err != nil {
 			panic(err)

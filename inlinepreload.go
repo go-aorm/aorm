@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	tag_scanner "github.com/unapu-go/tag-scanner"
 )
 
 type InlinePreloadInfo struct {
@@ -128,7 +130,11 @@ func (p *InlinePreloader) GetFields() []*StructField {
 		}
 		if p.Field != nil {
 			if preload := p.Field.TagSettings["PRELOAD"]; preload != "" {
-				p.Fields(strings.Split(preload, ","))
+				if p.Field.TagSettings.Scanner().IsTags(preload) {
+					p.Fields(tag_scanner.Flags(p.Field.TagSettings.Scanner(), preload))
+				} else {
+					p.Fields(strings.Split(preload, ","))
+				}
 				if len(p.StructFields) != 0 {
 					return p.StructFields
 				}
@@ -172,52 +178,62 @@ func (p *InlinePreloader) Select() {
 }
 
 func (p *InlinePreloader) Scan(result interface{}, values []interface{}, set func(model *ModelStruct, result interface{}, low, hight int) interface{}) {
+	if p.Scope.Search.ignorePrimaryFields {
+		for _, v := range values {
+			if v.(*ValueScanner).NotNil {
+				goto scan
+			}
+		}
+		// all values is nil
+		return
+	} else if values[0].(*ValueScanner).IsNil() {
+		// first field is PK, if is nil, no have values
+		return
+	}
+scan:
 	var model *ModelStruct
 	if p.Field != nil {
 		model = p.Field.Model
 	} else {
 		model = p.VirtualField.Model
 	}
-	// if is child, not loads primary fields, other else, require loads for check is NULL
-	if (p.Field != nil && p.Field.IsChild) || !values[0].(*ValueScanner).IsNil() {
-		field := reflect.Indirect(reflect.ValueOf(result))
-		ms := p.RootScope.Struct()
-		for _, pth := range p.Index {
-			if len(pth) == 1 && pth[0] < 0 {
-				i := (pth[0] * -1) - 1
-				vf := ms.virtualFieldsByIndex[i]
-				if mvf, ok := field.Addr().Interface().(ModelWithVirtualFields); ok {
-					v, ok := mvf.GetVirtualField(vf.FieldName)
-					if ok {
-						field = reflect.Indirect(reflect.ValueOf(v))
-					} else {
-						rv := reflect.New(vf.Model.Type)
-						v = rv.Interface()
-						vf.Set(mvf, v)
-						field = rv
-					}
-				} else if vf.Getter != nil {
-					if v, ok := vf.Getter(vf, field.Addr().Interface()); ok {
-						field = reflect.Indirect(reflect.ValueOf(v))
-					} else {
-						rv := reflect.New(vf.Model.Type)
-						v = rv.Interface()
-						vf.Set(field.Addr().Interface(), v)
-						field = rv
-					}
+	field := reflect.Indirect(reflect.ValueOf(result))
+	ms := p.RootScope.Struct()
+	for _, pth := range p.Index {
+		if len(pth) == 1 && pth[0] < 0 {
+			i := (pth[0] * -1) - 1
+			vf := ms.virtualFieldsByIndex[i]
+			if mvf, ok := field.Addr().Interface().(ModelWithVirtualFields); ok {
+				v, ok := mvf.GetVirtualField(vf.FieldName)
+				if ok {
+					field = reflect.Indirect(reflect.ValueOf(v))
+				} else {
+					rv := reflect.New(vf.Model.Type)
+					v = rv.Interface()
+					vf.Set(mvf, v)
+					field = rv
 				}
-			} else {
-				field = field.FieldByIndex(pth)
-				if field.Kind() == reflect.Ptr && isNil(field) {
-					field.Set(reflect.New(field.Type().Elem()))
+			} else if vf.Getter != nil {
+				if v, ok := vf.Getter(vf, field.Addr().Interface()); ok {
+					field = reflect.Indirect(reflect.ValueOf(v))
+				} else {
+					rv := reflect.New(vf.Model.Type)
+					v = rv.Interface()
+					vf.Set(field.Addr().Interface(), v)
+					field = rv
 				}
 			}
-			field = reflect.Indirect(field)
+		} else {
+			field = field.FieldByIndex(pth)
+			if field.Kind() == reflect.Ptr && isNil(field) {
+				field.Set(reflect.New(field.Type().Elem()))
+			}
 		}
-		set(model, field, 0, 0)
-		if cb, ok := result.(AfterInlinePreloadScanner); ok {
-			cb.AormAfterInlinePreloadScan(p, result, field.Addr().Interface())
-		}
+		field = reflect.Indirect(field)
+	}
+	set(model, field, 0, 0)
+	if cb, ok := result.(AfterInlinePreloadScanner); ok {
+		cb.AormAfterInlinePreloadScan(p, result, field.Addr().Interface())
 	}
 }
 
