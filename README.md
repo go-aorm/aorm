@@ -56,6 +56,7 @@ This is a fork of [GORM](https://github.com/jinzhu/gorm) with improved performan
 * **NEW:** Migrator: `err := aorm.NewMigrator(db).Migrate()`
 * **NEW:** Quote db object path: `aorm.QuotePath(db.Dialect(), "public.users")`
 * **NEW:** and more other changes...
+* **NEW:** Protect Sringer API: `ProtectStringer`. Default implemetations: `ProtectedString` and `ProtectStringerImpl`.
 
 ### Drivers
 * **NEW:** Static SQL dynamic escapes and zeros from special characters:
