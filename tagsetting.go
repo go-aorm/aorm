@@ -75,7 +75,7 @@ func (this TagSetting) Flag(name string) bool {
 	if this == nil {
 		return false
 	}
-	return this[name] != ""
+	return this[name] == name
 }
 
 func (this TagSetting) String() string {

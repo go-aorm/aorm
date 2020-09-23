@@ -583,11 +583,17 @@ func BindVar(dialect Dialector, assigner Assigner, value interface{}, replacemen
 }
 
 func SetZero(rvalue reflect.Value) {
-	if reseter, ok := rvalue.Addr().Interface().(Reseter); ok {
+	if rvalue.Kind() == reflect.Ptr {
+		if reseter, ok := rvalue.Interface().(Reseter); ok {
+			reseter.Reset()
+			return
+		}
+	} else if reseter, ok := rvalue.Addr().Interface().(Reseter); ok {
 		reseter.Reset()
-	} else {
-		rvalue.Set(reflect.Zero(rvalue.Type()))
+		return
 	}
+
+	rvalue.Set(reflect.Zero(rvalue.Type()))
 }
 
 func SetNonZero(rvalue reflect.Value, value interface{}) {
