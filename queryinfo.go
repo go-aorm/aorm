@@ -38,14 +38,21 @@ func (e *QueryInfo) EachArgs(cb func(i int, name string, value interface{})) {
 }
 
 func (e *QueryInfo) String() string {
-	var args = make([]interface{}, len(e.Query.Args), len(e.Query.Args))
-	e.EachArgs(func(i int, name string, value interface{}) {
-		if vlr, ok := value.(driver.Valuer); ok {
-			if v, err := vlr.Value(); err == nil {
+	return Query{e.Query.Query, NamedStringerArgs(e)}.String()
+}
+
+func NamedStringerArgs(qi *QueryInfo) (args []interface{}) {
+	args = make([]interface{}, len(qi.Query.Args), len(qi.Query.Args))
+	qi.EachArgs(func(i int, name string, value interface{}) {
+		switch t := value.(type) {
+		case ProtectedStringer:
+			value = HiddenStringerValue
+		case driver.Valuer:
+			if v, err := t.Value(); err == nil {
 				value = v
 			}
 		}
-		args[i] = sql.Named(e.argsName[i], value)
+		args[i] = sql.Named(qi.argsName[i], value)
 	})
-	return Query{e.Query.Query, args}.String()
+	return
 }

@@ -1,8 +1,6 @@
 package aorm
 
 import (
-	"database/sql"
-	"database/sql/driver"
 	"errors"
 	"fmt"
 	"reflect"
@@ -53,16 +51,7 @@ func (e *QueryError) Cause() error {
 }
 
 func (e *QueryError) Error() string {
-	var args = make([]interface{}, len(e.Query.Args), len(e.Query.Args))
-	e.EachArgs(func(i int, name string, value interface{}) {
-		if vlr, ok := value.(driver.Valuer); ok {
-			if v, err := vlr.Value(); err == nil {
-				value = v
-			}
-		}
-		args[i] = sql.Named(e.argsName[i], value)
-	})
-	return e.cause.Error() + "\n" + (Query{e.Query.Query, args}.String())
+	return e.cause.Error() + "\n" + (Query{e.Query.Query, NamedStringerArgs(&e.QueryInfo)}.String())
 }
 
 func IsQueryError(err ...error) bool {

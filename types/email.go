@@ -55,5 +55,5 @@ func (EmailAssigner) SQLSize(_ aorm.Dialector) int {
 }
 
 func (EmailAssigner) Type() reflect.Type {
-	return reflect.TypeOf(Email(0))
+	return reflect.TypeOf(Email(""))
 }

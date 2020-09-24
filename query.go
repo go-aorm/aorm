@@ -120,6 +120,8 @@ func (this Query) String() string {
 				} else {
 					var empty bool
 					switch at := arg.(type) {
+					case ProtectedStringer:
+						arg = HiddenStringerValue
 					case string:
 						if at == "" {
 							empty = true

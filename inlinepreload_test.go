@@ -1,9 +1,9 @@
 package aorm_test
 
 import (
-	"fmt"
-	"github.com/moisespsena-go/aorm"
 	"testing"
+
+	"github.com/moisespsena-go/aorm"
 )
 
 func TestPathsFromQuery(t *testing.T) {
@@ -27,7 +27,6 @@ func TestWithInlineQuery_Merge(t *testing.T) {
 	ip.Next("F4", "F5", "F6")
 	iq := aorm.IQ("{F1}.status = 1 and {F2.F3}.id !=  and {F2.F3} and {F4.F5.F6}.ok")
 	query := iq.Merge(ip)
-	fmt.Println(query)
 }
 
 func TestInlinePreloader_GetQuery(t *testing.T) {

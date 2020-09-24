@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	tag_scanner "github.com/unapu-go/tag-scanner"
 )
 
 type InlinePreloadInfo struct {
@@ -128,7 +130,11 @@ func (p *InlinePreloader) GetFields() []*StructField {
 		}
 		if p.Field != nil {
 			if preload := p.Field.TagSettings["PRELOAD"]; preload != "" {
-				p.Fields(strings.Split(preload, ","))
+				if p.Field.TagSettings.Scanner().IsTags(preload) {
+					p.Fields(tag_scanner.Flags(p.Field.TagSettings.Scanner(), preload))
+				} else {
+					p.Fields(strings.Split(preload, ","))
+				}
 				if len(p.StructFields) != 0 {
 					return p.StructFields
 				}

@@ -124,5 +124,13 @@ func CopyIdTo(src, dst ID) (ID, error) {
 	}
 
 	return dst.SetValue(values...)
+}
 
+func SetIDValuersToRecord(model *ModelStruct, record interface{}, valuer ...interface{}) (err error) {
+	if id, err := model.DefaultID().SetValue(valuer...); err != nil {
+		return err
+	} else {
+		id.SetTo(record)
+		return nil
+	}
 }

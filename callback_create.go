@@ -52,12 +52,6 @@ func updateTimeStampForCreateCallback(scope *Scope) {
 				createdAtField.Set(now)
 			}
 		}
-
-		if updatedAtField, ok := scope.FieldByName("UpdatedAt"); ok {
-			if updatedAtField.IsBlank {
-				updatedAtField.Set(now)
-			}
-		}
 	}
 }
 

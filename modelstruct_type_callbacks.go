@@ -103,6 +103,14 @@ func (this *TypeCallbacks) Migrate(pos CallbackPosition, f ...TypeCallback) *Typ
 	return this.TypeCallbackName(pos, "Migrate", f...)
 }
 
+func (this *TypeCallbacks) AfterMigrate(f ...TypeCallback) *TypeCallbacks {
+	return this.Migrate(After, f...)
+}
+
+func (this *TypeCallbacks) BeforeMigrate(f ...TypeCallback) *TypeCallbacks {
+	return this.Migrate(Before, f...)
+}
+
 func (this *TypeCallbacks) CreateTable(pos CallbackPosition, f ...TypeCallback) *TypeCallbacks {
 	return this.TypeCallbackName(pos, "CreateTable", f...)
 }

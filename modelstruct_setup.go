@@ -127,7 +127,7 @@ func (this *ModelStruct) setup(pth []string, embedded bool, from *ModelStruct) (
 					)
 					tbNamer = func(singular bool) string {
 						var _, tableName = JoinNameOfString(
-							this.TableName(context.Background(), singular),
+							this.TableName(context.Background(), true),
 							field.DBName,
 						)
 						return tableName
