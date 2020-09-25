@@ -67,8 +67,11 @@ func (this TagSetting) Enable(key string) {
 	this[key] = key
 }
 
-func (this TagSetting) Set(key, value string) {
-	this[key] = value
+func (this *TagSetting) Set(key, value string) {
+	if *this == nil {
+		*this = make(TagSetting)
+	}
+	(*this)[key] = value
 }
 
 func (this TagSetting) Flag(name string) bool {

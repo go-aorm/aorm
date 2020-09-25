@@ -315,7 +315,7 @@ func (this *ModelStruct) setup(pth []string, embedded bool, from *ModelStruct) (
 		if _, ok := field.TagSettings["-"]; ok {
 			field.IsIgnored = true
 		} else {
-			if field.TagSettings.Flag("PRIMARY_KEY") {
+			if field.Name == "ID" || field.TagSettings.Flag("PRIMARY_KEY") {
 				field.IsPrimaryKey = true
 				this.PrimaryFields = append(this.PrimaryFields, field)
 			}
